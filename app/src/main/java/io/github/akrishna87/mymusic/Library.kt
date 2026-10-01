@@ -8,48 +8,99 @@ import android.provider.MediaStore
 import java.io.File
 import java.text.Collator
 
+/**
+ * A song, from Android's media library or from a folder the person added.
+ * [id] is the MediaStore row id for library songs, or the document URI for added-folder songs.
+ */
 data class Song(
-    val id: Long,
+    val id: String,
     val title: String,
     val artist: String,
     val album: String,
+    val albumKey: String,
     val albumId: Long,
     val durationMs: Long,
     val track: Int,
     val dateAdded: Long,
     val folder: String,
     val fileName: String,
+    /** Volume + path + file name, used to spot the same file reached two different ways. */
+    val locationKey: String,
 ) {
-    val uri: Uri get() = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+    val uri: Uri get() = uriForId(id)
     val albumArtUri: Uri get() = ContentUris.withAppendedId(ALBUM_ART_URI, albumId)
     val subtitle: String get() = if (album.isNotEmpty()) "$artist · $album" else artist
 
     fun matches(query: String): Boolean =
-        query.isBlank() || listOf(title, artist, album, fileName).any { it.contains(query.trim(), ignoreCase = true) }
+        query.isBlank() || listOf(title, artist, album, fileName, folder).any { it.contains(query.trim(), ignoreCase = true) }
 
     companion object {
         val ALBUM_ART_URI: Uri = Uri.parse("content://media/external/audio/albumart")
         const val UNKNOWN_ARTIST = "Unknown artist"
         const val UNKNOWN_ALBUM = "Unknown album"
+
+        fun uriForId(id: String): Uri =
+            id.toLongOrNull()?.let { ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, it) }
+                ?: Uri.parse(id)
     }
 }
 
-data class AlbumGroup(val id: Long, val name: String, val artist: String, val songs: List<Song>)
+data class AlbumGroup(val key: String, val name: String, val artist: String, val songs: List<Song>)
 data class ArtistGroup(val name: String, val songs: List<Song>)
-data class FolderGroup(val path: String, val songs: List<Song>) {
-    val name: String get() = path.substringAfterLast('/').ifEmpty { "Phone storage" }
-}
+
+/** One level of the folder tree: the folders inside [path] and the songs directly in it. */
+data class FolderLevel(
+    val path: String,
+    val subfolders: List<FolderEntry>,
+    val songs: List<Song>,
+    val allSongs: List<Song>,
+)
+
+data class FolderEntry(val path: String, val name: String, val songCount: Int)
 
 enum class SongSort(val label: String) { TITLE("A–Z"), ARTIST("Artist"), NEWEST("Newest") }
+
+object Storage {
+    const val SD_CARD = "SD card"
+
+    private fun isPrimary(volume: String) =
+        volume.isEmpty() || volume.equals("primary", true) || volume.equals("external_primary", true) || volume.equals("external", true)
+
+    /** Folder path as shown in the app: "Music/Hindi" on the phone, "SD card/Music" on a memory card. */
+    fun displayFolder(volume: String, relativeDir: String): String =
+        listOf(if (isPrimary(volume)) "" else SD_CARD, relativeDir.trim('/')).filter { it.isNotEmpty() }.joinToString("/")
+
+    fun locationKey(volume: String, relativeDir: String, fileName: String): String {
+        val v = if (isPrimary(volume)) "primary" else volume.lowercase()
+        val dir = relativeDir.trim('/')
+        return "$v:${if (dir.isEmpty()) "" else "$dir/"}$fileName".lowercase()
+    }
+
+    /** Splits "/storage/emulated/0/Music/a.mp3" or "/storage/1234-ABCD/Music/a.mp3" into volume + folder. */
+    fun splitLegacyPath(path: String): Pair<String, String> {
+        val parent = File(path).parent.orEmpty()
+        return when {
+            parent.startsWith("/storage/emulated/") ->
+                "primary" to parent.removePrefix("/storage/emulated/").substringAfter('/', "")
+            parent.startsWith("/storage/") -> {
+                val rest = parent.removePrefix("/storage/")
+                rest.substringBefore('/') to rest.substringAfter('/', "")
+            }
+            else -> "primary" to parent.trim('/')
+        }
+    }
+}
 
 /** Reads every song Android's media scanner knows about, straight from the phone's storage. */
 object MusicRepository {
 
+    /** Shorter than this is a sound effect or notification tone, not a song. */
+    private const val MIN_DURATION_MS = 10_000L
+
+    @Suppress("DEPRECATION") // MediaStore DATA is the only folder info before Android 10
     fun loadSongs(context: Context): List<Song> {
-        val folderColumn =
-            if (Build.VERSION.SDK_INT >= 29) MediaStore.Audio.Media.RELATIVE_PATH
-            else @Suppress("DEPRECATION") MediaStore.Audio.Media.DATA
-        val projection = arrayOf(
+        val modern = Build.VERSION.SDK_INT >= 29
+        val columns = mutableListOf(
             MediaStore.Audio.Media._ID,
             MediaStore.Audio.Media.TITLE,
             MediaStore.Audio.Media.ARTIST,
@@ -59,44 +110,74 @@ object MusicRepository {
             MediaStore.Audio.Media.TRACK,
             MediaStore.Audio.Media.DATE_ADDED,
             MediaStore.Audio.Media.DISPLAY_NAME,
-            folderColumn,
+            MediaStore.Audio.Media.IS_RINGTONE,
+            MediaStore.Audio.Media.IS_NOTIFICATION,
+            MediaStore.Audio.Media.IS_ALARM,
         )
+        if (modern) {
+            columns += MediaStore.Audio.Media.RELATIVE_PATH
+            columns += MediaStore.Audio.Media.VOLUME_NAME
+        } else {
+            columns += MediaStore.Audio.Media.DATA
+        }
+        if (Build.VERSION.SDK_INT >= 31) columns += MediaStore.Audio.Media.IS_RECORDING
+
         val songs = ArrayList<Song>()
+        // No IS_MUSIC filter: Android marks plenty of real songs (Podcasts, Audiobooks, some
+        // downloads) as "not music". Ringtones, alarms, recordings and short clips are dropped below.
         context.contentResolver.query(
             MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-            projection,
-            "${MediaStore.Audio.Media.IS_MUSIC} != 0",
+            columns.toTypedArray(),
+            null,
             null,
             null,
         )?.use { c ->
-            val iId = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-            val iTitle = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-            val iArtist = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-            val iAlbum = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
-            val iAlbumId = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
-            val iDuration = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-            val iTrack = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
-            val iAdded = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
-            val iName = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
-            val iFolder = c.getColumnIndexOrThrow(folderColumn)
+            fun col(name: String) = c.getColumnIndexOrThrow(name)
+            val iId = col(MediaStore.Audio.Media._ID)
+            val iTitle = col(MediaStore.Audio.Media.TITLE)
+            val iArtist = col(MediaStore.Audio.Media.ARTIST)
+            val iAlbum = col(MediaStore.Audio.Media.ALBUM)
+            val iAlbumId = col(MediaStore.Audio.Media.ALBUM_ID)
+            val iDuration = col(MediaStore.Audio.Media.DURATION)
+            val iTrack = col(MediaStore.Audio.Media.TRACK)
+            val iAdded = col(MediaStore.Audio.Media.DATE_ADDED)
+            val iName = col(MediaStore.Audio.Media.DISPLAY_NAME)
+            val iRingtone = col(MediaStore.Audio.Media.IS_RINGTONE)
+            val iNotification = col(MediaStore.Audio.Media.IS_NOTIFICATION)
+            val iAlarm = col(MediaStore.Audio.Media.IS_ALARM)
+            val iRecording = if (Build.VERSION.SDK_INT >= 31) col(MediaStore.Audio.Media.IS_RECORDING) else -1
+            val iRelative = if (modern) col(MediaStore.Audio.Media.RELATIVE_PATH) else -1
+            val iVolume = if (modern) col(MediaStore.Audio.Media.VOLUME_NAME) else -1
+            val iData = if (modern) -1 else col(MediaStore.Audio.Media.DATA)
+
+            fun flag(i: Int) = i >= 0 && !c.isNull(i) && c.getInt(i) != 0
+
             while (c.moveToNext()) {
+                if (flag(iRingtone) || flag(iNotification) || flag(iAlarm) || flag(iRecording)) continue
+                val duration = if (c.isNull(iDuration)) 0L else c.getLong(iDuration)
+                if (duration in 1 until MIN_DURATION_MS) continue
+
                 val fileName = c.getString(iName).orEmpty()
+                val (volume, relativeDir) =
+                    if (modern) c.getString(iVolume).orEmpty() to c.getString(iRelative).orEmpty()
+                    else Storage.splitLegacyPath(c.getString(iData).orEmpty())
                 val rawTitle = c.getString(iTitle)
                 val rawArtist = c.getString(iArtist)
                 val rawAlbum = c.getString(iAlbum).orEmpty()
-                val rawFolder = c.getString(iFolder).orEmpty()
+                val albumId = c.getLong(iAlbumId)
                 songs += Song(
-                    id = c.getLong(iId),
+                    id = c.getLong(iId).toString(),
                     title = if (rawTitle.isNullOrBlank()) fileName.substringBeforeLast('.') else rawTitle,
                     artist = if (rawArtist.isNullOrBlank() || rawArtist == "<unknown>") Song.UNKNOWN_ARTIST else rawArtist,
                     album = if (rawAlbum == "<unknown>") "" else rawAlbum,
-                    albumId = c.getLong(iAlbumId),
-                    durationMs = c.getLong(iDuration),
+                    albumKey = "ms:$albumId",
+                    albumId = albumId,
+                    durationMs = duration,
                     track = c.getInt(iTrack) % 1000, // stored as disc * 1000 + track
                     dateAdded = c.getLong(iAdded),
-                    folder = if (Build.VERSION.SDK_INT >= 29) rawFolder.trim('/')
-                    else File(rawFolder).parent.orEmpty().removePrefix("/storage/emulated/0").trim('/'),
+                    folder = Storage.displayFolder(volume, relativeDir),
                     fileName = fileName,
+                    locationKey = Storage.locationKey(volume, relativeDir, fileName),
                 )
             }
         }
@@ -117,10 +198,10 @@ object LibraryGrouping {
     }
 
     fun albums(songs: List<Song>): List<AlbumGroup> =
-        songs.groupBy { it.albumId }.map { (id, list) ->
+        songs.groupBy { it.albumKey }.map { (key, list) ->
             val artists = list.map { it.artist }.distinct()
             AlbumGroup(
-                id = id,
+                key = key,
                 name = list.first().album.ifEmpty { Song.UNKNOWN_ALBUM },
                 artist = if (artists.size == 1) artists[0] else "Various artists",
                 songs = list.sortedWith(albumOrder),
@@ -135,8 +216,32 @@ object LibraryGrouping {
             )
         }.sortedWith(compareBy(collator) { it.name })
 
-    fun folders(songs: List<Song>): List<FolderGroup> =
-        songs.groupBy { it.folder }.map { (path, list) ->
-            FolderGroup(path, list.sortedWith(compareBy(collator) { it.fileName }))
-        }.sortedWith(compareBy(collator) { it.path })
+    /** Folders inside [path] (with song counts that include their subfolders) and the songs directly in it. */
+    fun folderLevel(songs: List<Song>, path: String): FolderLevel {
+        val prefix = if (path.isEmpty()) "" else "$path/"
+        val inside = (if (path.isEmpty()) songs else songs.filter { it.folder == path || it.folder.startsWith(prefix) })
+            .sortedWith(compareBy<Song, String>(collator) { it.folder }.thenBy(collator) { it.fileName })
+        val direct = inside.filter { it.folder == path }.sortedWith(compareBy(collator) { it.fileName })
+        val subfolders = inside.filter { it.folder != path }
+            .groupBy { it.folder.removePrefix(prefix).substringBefore('/') }
+            .map { (name, list) -> FolderEntry(prefix + name, name, list.size) }
+            // The SD card goes after the phone's own folders.
+            .sortedWith(compareBy<FolderEntry> { path.isEmpty() && it.name == Storage.SD_CARD }.thenBy(collator) { it.name })
+        return FolderLevel(path, subfolders, direct, inside)
+    }
+
+    /** Every folder (at any depth) whose path contains [query], for searching the Folders tab. */
+    fun searchFolders(songs: List<Song>, query: String): List<FolderEntry> {
+        val counts = HashMap<String, Int>()
+        for (s in songs) {
+            var p = s.folder
+            while (p.isNotEmpty()) {
+                counts[p] = (counts[p] ?: 0) + 1
+                p = p.substringBeforeLast('/', "")
+            }
+        }
+        return counts.filterKeys { it.contains(query.trim(), ignoreCase = true) }
+            .map { (p, n) -> FolderEntry(p, p.substringAfterLast('/'), n) }
+            .sortedWith(compareBy(collator) { it.path })
+    }
 }

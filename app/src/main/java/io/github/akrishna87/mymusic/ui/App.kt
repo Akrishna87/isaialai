@@ -1,6 +1,7 @@
 package io.github.akrishna87.mymusic.ui
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -40,6 +42,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Folder
@@ -47,6 +50,7 @@ import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.SdCard
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
@@ -91,17 +95,22 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.github.akrishna87.mymusic.AddedFolders
+import io.github.akrishna87.mymusic.FolderEntry
+import io.github.akrishna87.mymusic.FolderLevel
 import io.github.akrishna87.mymusic.LibraryGrouping
 import io.github.akrishna87.mymusic.MusicViewModel
 import io.github.akrishna87.mymusic.NameRequest
 import io.github.akrishna87.mymusic.Screen
 import io.github.akrishna87.mymusic.Song
 import io.github.akrishna87.mymusic.SongSort
+import io.github.akrishna87.mymusic.Storage
 
 private val TABS = listOf("Songs", "Albums", "Artists", "Folders", "Playlists")
 
@@ -337,8 +346,8 @@ private fun AlbumsTab(vm: MusicViewModel) {
         verticalArrangement = Arrangement.spacedBy(18.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
-        items(albums, key = { it.id }) { a ->
-            Column(Modifier.clickable { vm.open(Screen.Album(a.id)) }) {
+        items(albums, key = { it.key }) { a ->
+            Column(Modifier.clickable { vm.open(Screen.Album(a.key)) }) {
                 ArtImage(
                     a.songs.first(),
                     Modifier.fillMaxWidth().aspectRatio(1f),
@@ -398,19 +407,104 @@ private fun ArtistsTab(vm: MusicViewModel) {
 
 @Composable
 private fun FoldersTab(vm: MusicViewModel) {
-    val folders = remember(vm.songs, vm.query) {
-        LibraryGrouping.folders(vm.songs).filter { vm.query.isBlank() || it.path.contains(vm.query.trim(), true) }
+    if (vm.query.isNotBlank()) {
+        val found = remember(vm.songs, vm.query) { LibraryGrouping.searchFolders(vm.songs, vm.query) }
+        if (found.isEmpty()) return Hint("No folders match “${vm.query}”.")
+        LazyColumn(Modifier.fillMaxSize()) {
+            items(found, key = { it.path }) { f -> FolderRow(vm, f, showPath = true) }
+        }
+        return
     }
-    if (folders.isEmpty()) return Hint("No folders match “${vm.query}”.")
+    val level = remember(vm.songs) { LibraryGrouping.folderLevel(vm.songs, "") }
     LazyColumn(Modifier.fillMaxSize()) {
-        items(folders, key = { it.path }) { f ->
-            GroupRow(f.name, "${f.path.ifEmpty { "Phone storage" }} · ${songCount(f.songs.size)}", onClick = { vm.open(Screen.Folder(f.path)) }) {
-                Box(
-                    Modifier.size(48.dp).background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Rounded.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+        folderItems(vm, level)
+        item { AddFolderCard(vm) }
+    }
+}
+
+/** The subfolders of a folder, then the songs directly inside it. */
+private fun LazyListScope.folderItems(vm: MusicViewModel, level: FolderLevel) {
+    items(level.subfolders, key = { "dir:" + it.path }) { f -> FolderRow(vm, f) }
+    itemsIndexed(level.songs, key = { _, s -> s.id }) { i, s ->
+        SongRow(vm, s, onClick = { vm.play(level.songs, i) })
+    }
+}
+
+@Composable
+private fun FolderIcon(path: String, size: Dp = 48.dp) {
+    val sdCard = path == Storage.SD_CARD
+    Box(
+        Modifier.size(size).background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(12.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            if (sdCard) Icons.Rounded.SdCard else Icons.Rounded.Folder,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.size(size / 2),
+        )
+    }
+}
+
+@Composable
+private fun FolderRow(vm: MusicViewModel, f: FolderEntry, showPath: Boolean = false) {
+    GroupRow(
+        f.name,
+        if (showPath) "${f.path} · ${songCount(f.songCount)}" else songCount(f.songCount),
+        onClick = { vm.open(Screen.Folder(f.path)) },
+    ) {
+        FolderIcon(f.path)
+    }
+}
+
+/** Opens the system folder picker; the chosen folder is remembered and read directly. */
+@Composable
+private fun rememberFolderPicker(vm: MusicViewModel): () -> Unit {
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) vm.addFolder(uri)
+    }
+    return {
+        try {
+            launcher.launch(AddedFolders.pickerStart)
+        } catch (e: ActivityNotFoundException) {
+            vm.say("This phone has no folder picker")
+        }
+    }
+}
+
+@Composable
+private fun AddFolderCard(vm: MusicViewModel) {
+    val pickFolder = rememberFolderPicker(vm)
+    Surface(
+        Modifier.fillMaxWidth().padding(16.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Missing songs?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "Some folders, like Telegram or app download folders, are hidden from Android's music library. " +
+                    "Add the folder here and My Music will read it directly.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (vm.scanningFolders) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Text("Reading added folders…", style = MaterialTheme.typography.bodySmall)
                 }
+            }
+            vm.addedFolders.forEach { (uri, path) ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    FolderIcon(path, size = 36.dp)
+                    Text(path, Modifier.weight(1f).padding(start = 12.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    IconButton(onClick = { vm.removeFolder(uri) }) { Icon(Icons.Rounded.Close, "Stop reading $path") }
+                }
+            }
+            FilledTonalButton(onClick = pickFolder) {
+                Icon(Icons.Rounded.CreateNewFolder, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text("Add a folder")
             }
         }
     }
@@ -464,7 +558,18 @@ private fun EmptyLibrary(vm: MusicViewModel) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(20.dp))
-        Button(onClick = { vm.refreshLibrary(announce = true) }) { Text("Rescan") }
+        val pickFolder = rememberFolderPicker(vm)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { vm.refreshLibrary(announce = true) }) { Text("Rescan") }
+            Button(onClick = pickFolder) { Text("Add a folder") }
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "Music in a folder Android hides (Telegram, some downloader apps)? Tap “Add a folder” and pick it.",
+            textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -476,6 +581,8 @@ private data class DetailData(
     val songs: List<Song>,
     val round: Boolean = false,
     val playlistId: String? = null,
+    /** Set for folder pages, which list subfolders as well as songs. */
+    val folder: FolderLevel? = null,
 )
 
 @Composable
@@ -483,7 +590,7 @@ private fun detailFor(vm: MusicViewModel, screen: Screen): DetailData? {
     val songs = vm.songs
     return when (screen) {
         is Screen.Album -> remember(screen, songs) {
-            LibraryGrouping.albums(songs.filter { it.albumId == screen.albumId }).firstOrNull()?.let {
+            LibraryGrouping.albums(songs.filter { it.albumKey == screen.key }).firstOrNull()?.let {
                 DetailData(it.name, "${it.artist} · ${songCount(it.songs.size)}", it.songs)
             }
         }
@@ -493,8 +600,9 @@ private fun detailFor(vm: MusicViewModel, screen: Screen): DetailData? {
             }
         }
         is Screen.Folder -> remember(screen, songs) {
-            LibraryGrouping.folders(songs.filter { it.folder == screen.path }).firstOrNull()?.let {
-                DetailData(it.name, "${it.path.ifEmpty { "Phone storage" }} · ${songCount(it.songs.size)}", it.songs)
+            LibraryGrouping.folderLevel(songs, screen.path).takeIf { it.allSongs.isNotEmpty() }?.let { level ->
+                val path = screen.path.ifEmpty { "Phone storage" }
+                DetailData(path.substringAfterLast('/'), "$path · ${songCount(level.allSongs.size)}", level.allSongs, folder = level)
             }
         }
         is Screen.PlaylistDetail -> {
@@ -541,13 +649,17 @@ private fun DetailContent(vm: MusicViewModel, detail: DetailData?) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                ArtImage(
-                    detail.songs.firstOrNull(),
-                    Modifier.size(112.dp),
-                    sizePx = 400,
-                    shape = if (detail.round) CircleShape else RoundedCornerShape(14.dp),
-                    iconSize = 40.dp,
-                )
+                if (detail.folder != null) {
+                    FolderIcon(detail.folder.path, size = 112.dp)
+                } else {
+                    ArtImage(
+                        detail.songs.firstOrNull(),
+                        Modifier.size(112.dp),
+                        sizePx = 400,
+                        shape = if (detail.round) CircleShape else RoundedCornerShape(14.dp),
+                        iconSize = 40.dp,
+                    )
+                }
                 Column(Modifier.weight(1f)) {
                     Text(detail.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(detail.subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -566,6 +678,10 @@ private fun DetailContent(vm: MusicViewModel, detail: DetailData?) {
                     }
                 }
             }
+        }
+        if (detail.folder != null) {
+            folderItems(vm, detail.folder)
+            return@LazyColumn
         }
         if (detail.songs.isEmpty()) {
             item { Hint("No songs here yet. Use a song's ⋮ menu → “Add to playlist…”.") }

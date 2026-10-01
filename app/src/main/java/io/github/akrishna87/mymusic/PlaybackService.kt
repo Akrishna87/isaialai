@@ -229,13 +229,7 @@ class PlaybackService : MediaSessionService() {
         val pos = getSharedPreferences("position", Context.MODE_PRIVATE)
         val items = List(arr.length()) { i ->
             val o = arr.getJSONObject(i)
-            val song = Song(
-                id = o.getString("id").toLong(),
-                title = o.optString("title"),
-                artist = o.optString("artist"),
-                album = o.optString("album"),
-                albumId = 0, durationMs = 0, track = 0, dateAdded = 0, folder = "", fileName = "",
-            )
+            val song = songStub(o.getString("id"), o.optString("title"), o.optString("artist"), o.optString("album"))
             val art = o.optString("art")
             song.toMediaItem().let { item ->
                 if (art.isEmpty()) item

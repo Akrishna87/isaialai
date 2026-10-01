@@ -3,6 +3,7 @@ package io.github.akrishna87.mymusic
 import android.app.Application
 import android.content.ComponentName
 import android.database.ContentObserver
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -29,10 +30,11 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import io.github.akrishna87.mymusic.ui.songCount
 import kotlin.random.Random
 
 sealed interface Screen {
-    data class Album(val albumId: Long) : Screen
+    data class Album(val key: String) : Screen
     data class Artist(val name: String) : Screen
     data class Folder(val path: String) : Screen
     data class PlaylistDetail(val id: String) : Screen
@@ -47,8 +49,13 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
     // ----- Library -----
     var songs by mutableStateOf<List<Song>>(emptyList()); private set
-    var songsById by mutableStateOf<Map<Long, Song>>(emptyMap()); private set
+    var songsById by mutableStateOf<Map<String, Song>>(emptyMap()); private set
     var loading by mutableStateOf(true); private set
+
+    /** Folders added with the folder picker, as (folder, path shown in the app). */
+    var addedFolders by mutableStateOf<List<Pair<Uri, String>>>(emptyList()); private set
+    var scanningFolders by mutableStateOf(false); private set
+    private var folderSongs: List<Song> = emptyList()
 
     // ----- Navigation & UI -----
     val screens = mutableStateListOf<Screen>()
@@ -64,7 +71,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     val playlists = PlaylistStore(app)
 
     // ----- Player mirror -----
-    var currentId by mutableStateOf<Long?>(null); private set
+    var currentId by mutableStateOf<String?>(null); private set
     var currentTitle by mutableStateOf(""); private set
     var currentArtist by mutableStateOf(""); private set
     var isPlaying by mutableStateOf(false); private set
@@ -73,7 +80,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     var positionMs by mutableLongStateOf(0L); private set
     var durationMs by mutableLongStateOf(0L); private set
     /** Upcoming songs as (queue index, song id), in play order. */
-    var upNext by mutableStateOf<List<Pair<Int, Long>>>(emptyList()); private set
+    var upNext by mutableStateOf<List<Pair<Int, String>>>(emptyList()); private set
 
     val currentSong: Song? get() = currentId?.let { songsById[it] }
 
@@ -94,6 +101,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
     private var observing = false
     private var refreshJob: Job? = null
+    private var libraryJob: Job? = null
     private val mediaObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
         override fun onChange(selfChange: Boolean) {
             // New downloads or deleted files: rescan shortly after things settle down.
@@ -139,21 +147,75 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         refreshLibrary()
     }
 
-    fun refreshLibrary(announce: Boolean = false) {
-        viewModelScope.launch {
-            val list = withContext(Dispatchers.IO) {
+    private fun publish(list: List<Song>) {
+        songs = list
+        songsById = list.associateBy { it.id }
+        loading = false
+        syncFromPlayer()
+    }
+
+    /**
+     * Reloads Android's media library (fast), then reads any added folders directly (slower the
+     * first time, cached after). [newFolder] is a folder that was just added, to report on.
+     */
+    fun refreshLibrary(announce: Boolean = false, newFolder: Uri? = null) {
+        libraryJob?.cancel()
+        libraryJob = viewModelScope.launch {
+            val app = getApplication<Application>()
+            val library = withContext(Dispatchers.IO) {
                 try {
-                    MusicRepository.loadSongs(getApplication())
+                    MusicRepository.loadSongs(app)
                 } catch (e: Exception) {
                     emptyList()
                 }
             }
-            songs = list
-            songsById = list.associateBy { it.id }
-            loading = false
-            syncFromPlayer()
-            if (announce) messageChannel.trySend("Found ${list.size} songs")
+            val known = library.mapTo(HashSet()) { it.locationKey }
+            // Keep showing the previous folder songs while the folders are re-read.
+            publish(library + folderSongs.filter { it.locationKey !in known })
+
+            val trees = AddedFolders.list(app)
+            addedFolders = withContext(Dispatchers.IO) { trees.map { it to AddedFolders.displayPath(app, it) } }
+            if (trees.isEmpty()) {
+                folderSongs = emptyList()
+                publish(library)
+            } else {
+                scanningFolders = true
+                try {
+                    val result = withContext(Dispatchers.IO) { AddedFolders.scan(app, trees, known) }
+                    folderSongs = result.songs
+                    publish(library + result.songs)
+                    if (newFolder != null) {
+                        val name = addedFolders.firstOrNull { it.first == newFolder }?.second ?: "the folder"
+                        val n = result.audioFilesPerFolder[newFolder] ?: 0
+                        messageChannel.trySend(if (n == 0) "No songs found in $name" else "Added $name: ${songCount(n)}")
+                    }
+                } finally {
+                    scanningFolders = false
+                }
+            }
+            if (announce) messageChannel.trySend("Found ${songCount(songs.size)}")
         }
+    }
+
+    fun addFolder(tree: Uri) {
+        try {
+            AddedFolders.add(getApplication(), tree)
+        } catch (e: SecurityException) {
+            messageChannel.trySend("Couldn't get access to that folder")
+            return
+        }
+        messageChannel.trySend("Reading the folder…")
+        refreshLibrary(newFolder = tree)
+    }
+
+    fun removeFolder(tree: Uri) {
+        AddedFolders.remove(getApplication(), tree)
+        refreshLibrary()
+        messageChannel.trySend("Folder removed. The songs in it are no longer listed.")
+    }
+
+    fun say(text: String) {
+        messageChannel.trySend(text)
     }
 
     fun saveTab(i: Int) {
@@ -182,7 +244,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     private fun syncFromPlayer() {
         val c = controller ?: return
         val item = c.currentMediaItem
-        currentId = item?.mediaId?.toLongOrNull()
+        currentId = item?.mediaId?.takeIf { it.isNotEmpty() }
         currentTitle = item?.mediaMetadata?.title?.toString().orEmpty()
         currentArtist = item?.mediaMetadata?.artist?.toString().orEmpty()
         isPlaying = c.isPlaying
@@ -197,7 +259,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
             while (next.size < 300) {
                 i = tl.getNextWindowIndex(i, Player.REPEAT_MODE_OFF, c.shuffleModeEnabled)
                 if (i == C.INDEX_UNSET) break
-                c.getMediaItemAt(i).mediaId.toLongOrNull()?.let { next += i to it }
+                next += i to c.getMediaItemAt(i).mediaId
             }
         }
         upNext = next

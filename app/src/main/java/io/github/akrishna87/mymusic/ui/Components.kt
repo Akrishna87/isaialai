@@ -136,7 +136,7 @@ fun SongRow(
                 DropdownMenuItem(text = { Text("Play next") }, onClick = { menu = false; vm.enqueue(song, next = true) })
                 DropdownMenuItem(text = { Text("Add to queue") }, onClick = { menu = false; vm.enqueue(song, next = false) })
                 DropdownMenuItem(text = { Text("Add to playlist…") }, onClick = { menu = false; vm.playlistPickerFor = song })
-                DropdownMenuItem(text = { Text("Go to album") }, onClick = { menu = false; vm.open(Screen.Album(song.albumId)) })
+                DropdownMenuItem(text = { Text("Go to album") }, onClick = { menu = false; vm.open(Screen.Album(song.albumKey)) })
                 DropdownMenuItem(text = { Text("Go to artist") }, onClick = { menu = false; vm.open(Screen.Artist(song.artist)) })
                 DropdownMenuItem(text = { Text("Go to folder") }, onClick = { menu = false; vm.open(Screen.Folder(song.folder)) })
                 if (playlistId != null) {
