@@ -223,6 +223,8 @@ grep -q "Smoke Hidden Song" "$OUT/search-results.xml" || fail "searching for 'Hi
 echo "PASS: search finds songs"
 
 echo "--- Home after listening"
+# Close the search keyboard first: it covers the tab bar.
+if adb shell dumpsys input_method | grep -q "mInputShown=true"; then adb shell input keyevent KEYCODE_BACK; sleep 1; fi
 dump before-home
 tap before-home "Home"
 sleep 3

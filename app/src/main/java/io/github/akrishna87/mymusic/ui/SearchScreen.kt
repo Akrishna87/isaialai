@@ -11,6 +11,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
@@ -23,6 +25,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -37,6 +41,7 @@ private class BrowseTile(val title: String, val key: String, val song: Song?, va
 @Composable
 fun SearchScreen(vm: MusicViewModel) {
     val query = vm.query.trim()
+    val focusManager = LocalFocusManager.current
     Column(Modifier.fillMaxSize().background(Palette.Background)) {
         Text(
             "Search",
@@ -54,6 +59,9 @@ fun SearchScreen(vm: MusicViewModel) {
                 }
             },
             singleLine = true,
+            // The keyboard's search key just closes the keyboard; results already show as you type.
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
             shape = RoundedCornerShape(8.dp),
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = Color.White,
