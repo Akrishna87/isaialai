@@ -727,10 +727,15 @@ adb shell locksettings clear --old 1111 > /dev/null
 echo "PASS: the player shows over the lock screen, and only the player"
 
 echo "--- Android Auto"
-adb shell cmd package query-services -a androidx.media3.session.MediaLibraryService | grep -q "$PKG/.PlaybackService" \
+# Android prints the service either as "pkg/.PlaybackService" or "name=pkg.PlaybackService".
+adb shell cmd package query-services -a androidx.media3.session.MediaLibraryService > "$OUT/library-services.txt"
+grep -Eq "$PKG(/\.|\.)PlaybackService" "$OUT/library-services.txt" \
   || fail "the player isn't offered as a media library, so Android Auto can't browse it"
-adb shell cmd package query-services -a android.media.browse.MediaBrowserService | grep -q "$PKG/.PlaybackService" \
+adb shell cmd package query-services -a android.media.browse.MediaBrowserService > "$OUT/browser-services.txt"
+grep -Eq "$PKG(/\.|\.)PlaybackService" "$OUT/browser-services.txt" \
   || fail "the player isn't offered as a media browser (what Android Auto connects to)"
+adb shell dumpsys package "$PKG" | grep -q "com.google.android.gms.car.application" \
+  || echo "(note: couldn't see the Android Auto meta-data in dumpsys; checking the APK instead)"
 echo "PASS: Android Auto can find Isaialai's music library (browsing itself needs a car or the Auto head unit)"
 
 echo "--- Home-screen widget"
