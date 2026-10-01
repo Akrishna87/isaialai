@@ -38,11 +38,24 @@ sealed interface Screen {
     data class Artist(val name: String) : Screen
     data class Folder(val path: String) : Screen
     data class PlaylistDetail(val id: String) : Screen
+    data class Composer(val name: String) : Screen
+    data class Smart(val kind: SmartPlaylist) : Screen
+    data object Duplicates : Screen
+}
+
+/** Playlists that fill themselves from what you play. */
+enum class SmartPlaylist(val label: String, val blurb: String) {
+    MOST_PLAYED("Most played", "Your 50 most played songs"),
+    RECENTLY_ADDED("Recently added", "Songs added in the last 30 days"),
+    NOT_PLAYED_LATELY("Not played in a while", "Songs you played before, but not in the last 2 months"),
+    NEVER_PLAYED("Never played", "Songs you haven't played in Isaialai yet"),
 }
 
 enum class Section { HOME, SEARCH, LIBRARY }
 
-enum class LibraryChip(val label: String) { SONGS("Songs"), ALBUMS("Albums"), ARTISTS("Artists"), FOLDERS("Folders"), PLAYLISTS("Playlists") }
+enum class LibraryChip(val label: String) {
+    SONGS("Songs"), ALBUMS("Albums"), ARTISTS("Artists"), COMPOSERS("Composers"), FOLDERS("Folders"), PLAYLISTS("Playlists")
+}
 
 /** A pending "name this playlist" prompt. */
 data class NameRequest(val title: String, val initial: String, val onSave: (String) -> Unit)
@@ -65,7 +78,9 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     val screens = mutableStateListOf<Screen>()
     var showPlayer by mutableStateOf(false)
     var section by mutableStateOf(Section.HOME); private set
-    var libraryChip by mutableStateOf(LibraryChip.entries.getOrElse(prefs.getInt("chip", 0)) { LibraryChip.SONGS }); private set
+    var libraryChip by mutableStateOf(
+        LibraryChip.entries.firstOrNull { it.name == prefs.getString("chipName", null) } ?: LibraryChip.SONGS,
+    ); private set
     /** What's typed on the Search screen. */
     var query by mutableStateOf("")
     /** Where the current queue came from, shown at the top of the full player. */
@@ -82,6 +97,8 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     /** Song ids, most recently played first. */
     var history by mutableStateOf(loadHistory()); private set
     private val playCounts: MutableMap<String, Int> = loadCounts()
+    /** When each song was last played (ms since epoch). */
+    private val lastPlayed: MutableMap<String, Long> = loadLastPlayed()
     var countsVersion by mutableIntStateOf(0); private set
     private var lastRecorded: String? = null
 
@@ -263,7 +280,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
     fun selectChip(c: LibraryChip) {
         libraryChip = c
-        prefs.edit().putInt("chip", c.ordinal).apply()
+        prefs.edit().putString("chipName", c.name).apply()
     }
 
     fun saveSort(s: SongSort) {
@@ -332,14 +349,40 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         HashMap()
     }
 
+    private fun loadLastPlayed(): MutableMap<String, Long> = try {
+        val o = org.json.JSONObject(prefs.getString("lastPlayed", "{}") ?: "{}")
+        o.keys().asSequence().associateWithTo(HashMap<String, Long>()) { o.getLong(it) }
+    } catch (e: Exception) {
+        HashMap()
+    }
+
     private fun recordPlay(id: String) {
         history = (listOf(id) + history.filter { it != id }).take(100)
         playCounts[id] = (playCounts[id] ?: 0) + 1
+        lastPlayed[id] = System.currentTimeMillis()
         countsVersion++
         prefs.edit()
             .putString("history", org.json.JSONArray(history).toString())
             .putString("counts", org.json.JSONObject(playCounts as Map<*, *>).toString())
+            .putString("lastPlayed", org.json.JSONObject(lastPlayed as Map<*, *>).toString())
             .apply()
+    }
+
+    /** The songs in a smart playlist right now. */
+    fun smartSongs(kind: SmartPlaylist, all: List<Song> = songs): List<Song> {
+        val now = System.currentTimeMillis()
+        val day = 24L * 60 * 60 * 1000
+        return when (kind) {
+            SmartPlaylist.MOST_PLAYED ->
+                all.filter { playCount(it.id) > 0 }.sortedByDescending { playCount(it.id) }.take(50)
+            SmartPlaylist.RECENTLY_ADDED ->
+                all.filter { it.dateAdded * 1000 >= now - 30 * day }.sortedByDescending { it.dateAdded }
+            SmartPlaylist.NOT_PLAYED_LATELY ->
+                all.filter { s -> lastPlayed[s.id]?.let { it < now - 60 * day } == true }
+                    .sortedByDescending { playCount(it.id) }
+            SmartPlaylist.NEVER_PLAYED ->
+                all.filter { playCount(it.id) == 0 }.sortedByDescending { it.dateAdded }
+        }
     }
 
     fun playCount(id: String): Int = playCounts[id] ?: 0

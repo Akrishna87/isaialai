@@ -26,13 +26,16 @@ data class Song(
     val fileName: String,
     /** Volume + path + file name, used to spot the same file reached two different ways. */
     val locationKey: String,
+    /** Music director(s), as tagged; often several names separated by commas. */
+    val composer: String = "",
+    val year: Int = 0,
 ) {
     val uri: Uri get() = uriForId(id)
     val albumArtUri: Uri get() = ContentUris.withAppendedId(ALBUM_ART_URI, albumId)
     val subtitle: String get() = if (album.isNotEmpty()) "$artist · $album" else artist
 
     fun matches(query: String): Boolean =
-        query.isBlank() || listOf(title, artist, album, fileName, folder).any { it.contains(query.trim(), ignoreCase = true) }
+        query.isBlank() || listOf(title, artist, album, composer, fileName, folder).any { it.contains(query.trim(), ignoreCase = true) }
 
     companion object {
         val ALBUM_ART_URI: Uri = Uri.parse("content://media/external/audio/albumart")
@@ -47,6 +50,10 @@ data class Song(
 
 data class AlbumGroup(val key: String, val name: String, val artist: String, val songs: List<Song>)
 data class ArtistGroup(val name: String, val songs: List<Song>)
+data class ComposerGroup(val name: String, val songs: List<Song>, val albums: List<AlbumGroup>)
+
+/** Copies of what looks like the same song: same title and artist, about the same length. */
+data class DuplicateGroup(val title: String, val artist: String, val copies: List<Song>)
 
 /** One level of the folder tree: the folders inside [path] and the songs directly in it. */
 data class FolderLevel(
@@ -113,6 +120,8 @@ object MusicRepository {
             MediaStore.Audio.Media.IS_RINGTONE,
             MediaStore.Audio.Media.IS_NOTIFICATION,
             MediaStore.Audio.Media.IS_ALARM,
+            MediaStore.Audio.Media.COMPOSER,
+            MediaStore.Audio.Media.YEAR,
         )
         if (modern) {
             columns += MediaStore.Audio.Media.RELATIVE_PATH
@@ -145,6 +154,8 @@ object MusicRepository {
             val iRingtone = col(MediaStore.Audio.Media.IS_RINGTONE)
             val iNotification = col(MediaStore.Audio.Media.IS_NOTIFICATION)
             val iAlarm = col(MediaStore.Audio.Media.IS_ALARM)
+            val iComposer = col(MediaStore.Audio.Media.COMPOSER)
+            val iYear = col(MediaStore.Audio.Media.YEAR)
             val iRecording = if (Build.VERSION.SDK_INT >= 31) col(MediaStore.Audio.Media.IS_RECORDING) else -1
             val iRelative = if (modern) col(MediaStore.Audio.Media.RELATIVE_PATH) else -1
             val iVolume = if (modern) col(MediaStore.Audio.Media.VOLUME_NAME) else -1
@@ -178,6 +189,8 @@ object MusicRepository {
                     folder = Storage.displayFolder(volume, relativeDir),
                     fileName = fileName,
                     locationKey = Storage.locationKey(volume, relativeDir, fileName),
+                    composer = c.getString(iComposer)?.takeIf { it != "<unknown>" }?.trim().orEmpty(),
+                    year = if (c.isNull(iYear)) 0 else c.getInt(iYear),
                 )
             }
         }
@@ -215,6 +228,54 @@ object LibraryGrouping {
                 songs = list.sortedWith(compareBy<Song, String>(collator) { it.album }.then(albumOrder)),
             )
         }.sortedWith(compareBy(collator) { it.name })
+
+    /** Splits a composer tag like "A.R. Rahman, Ilaiyaraaja" into its names. */
+    fun composerNames(tag: String): List<String> =
+        tag.split(',', ';', '/', '|').map { it.trim() }.filter { it.isNotEmpty() && !it.equals("<unknown>", true) }
+
+    /** Music directors, each with their songs and their albums (usually movies), newest first. */
+    fun composers(songs: List<Song>): List<ComposerGroup> {
+        val byName = LinkedHashMap<String, MutableList<Song>>()
+        val shown = HashMap<String, String>()
+        for (s in songs) for (name in composerNames(s.composer)) {
+            val k = name.lowercase()
+            shown.putIfAbsent(k, name)
+            byName.getOrPut(k) { ArrayList() } += s
+        }
+        return byName.map { (k, list) ->
+            val albums = albums(list).sortedWith(
+                compareByDescending<AlbumGroup> { a -> a.songs.maxOf { it.year } }.thenBy(collator) { it.name },
+            )
+            ComposerGroup(shown.getValue(k), albums.flatMap { it.songs }, albums)
+        }.sortedWith(compareBy(collator) { it.name })
+    }
+
+    private fun simplify(text: String): String =
+        text.lowercase().replace(Regex("[\\(\\[].*?[\\)\\]]"), "").filter { it.isLetterOrDigit() }
+
+    /**
+     * Songs that are on the phone more than once (e.g. saved from both WhatsApp and Telegram):
+     * same title and artist, and lengths within 3 seconds of each other.
+     */
+    fun duplicates(songs: List<Song>): List<DuplicateGroup> {
+        val out = ArrayList<DuplicateGroup>()
+        songs.groupBy { simplify(it.title) + "|" + simplify(it.artist) }.forEach { (key, list) ->
+            if (list.size < 2 || key.startsWith("|")) return@forEach
+            var cluster = ArrayList<Song>()
+            fun flush() {
+                if (cluster.size > 1) out += DuplicateGroup(cluster[0].title, cluster[0].artist, cluster.sortedWith(compareBy(collator) { it.folder }))
+            }
+            for (s in list.sortedBy { it.durationMs }) {
+                if (cluster.isNotEmpty() && s.durationMs - cluster.last().durationMs > 3_000) {
+                    flush()
+                    cluster = ArrayList()
+                }
+                cluster += s
+            }
+            flush()
+        }
+        return out.sortedWith(compareBy(collator) { it.title })
+    }
 
     /** Folders inside [path] (with song counts that include their subfolders) and the songs directly in it. */
     fun folderLevel(songs: List<Song>, path: String): FolderLevel {

@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -41,6 +42,7 @@ import io.github.akrishna87.mymusic.NameRequest
 import io.github.akrishna87.mymusic.PlaylistStore
 import io.github.akrishna87.mymusic.Screen
 import io.github.akrishna87.mymusic.Section
+import io.github.akrishna87.mymusic.SmartPlaylist
 import io.github.akrishna87.mymusic.SongSort
 import io.github.akrishna87.mymusic.Storage
 
@@ -58,8 +60,23 @@ fun LibraryScreen(vm: MusicViewModel) {
             IconButton(onClick = { vm.nameRequest = NameRequest("New playlist", "") { vm.createPlaylist(it) } }) {
                 Icon(Icons.Rounded.Add, "New playlist")
             }
+            Box {
+                var menu by remember { mutableStateOf(false) }
+                IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "More options") }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Find duplicate songs") },
+                        leadingIcon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null, tint = Palette.SubText) },
+                        onClick = { menu = false; vm.open(Screen.Duplicates) },
+                    )
+                }
+            }
         }
+        // Six tabs don't fit across a phone; keep the chosen one in view.
+        val chipRow = rememberLazyListState()
+        LaunchedEffect(vm.libraryChip) { chipRow.animateScrollToItem((vm.libraryChip.ordinal - 1).coerceAtLeast(0)) }
         LazyRow(
+            state = chipRow,
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -85,6 +102,7 @@ fun LibraryScreen(vm: MusicViewModel) {
                 LibraryChip.SONGS -> SongsList(vm)
                 LibraryChip.ALBUMS -> AlbumsGrid(vm)
                 LibraryChip.ARTISTS -> ArtistsList(vm)
+                LibraryChip.COMPOSERS -> ComposersList(vm)
                 LibraryChip.FOLDERS -> FoldersRoot(vm)
                 LibraryChip.PLAYLISTS -> PlaylistsList(vm)
             }
@@ -171,9 +189,30 @@ private fun ArtistsList(vm: MusicViewModel) {
 }
 
 @Composable
+private fun ComposersList(vm: MusicViewModel) {
+    val composers = remember(vm.songs) { LibraryGrouping.composers(vm.songs) }
+    if (composers.isEmpty()) {
+        return EmptyHint(
+            "No music directors yet. They come from the Composer tag in your song files, " +
+                "which most Tamil and Indian film songs have.",
+        )
+    }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalBottomSpace.current)) {
+        items(composers, key = { it.name.lowercase() }) { c ->
+            val movies = if (c.albums.size == 1) "1 movie" else "${c.albums.size} movies"
+            LibraryRow(c.name, "Music director · $movies · ${songCount(c.songs.size)}", onClick = { vm.open(Screen.Composer(c.name)) }) {
+                ArtImage(c.songs.first(), Modifier.size(60.dp), sizePx = 200, shape = CircleShape)
+            }
+        }
+    }
+}
+
+@Composable
 private fun PlaylistsList(vm: MusicViewModel) {
     val liked = vm.playlists.liked
     val list = vm.playlists.userPlaylists
+    val counts = vm.countsVersion
+    val smartSizes = remember(vm.songs, counts) { SmartPlaylist.entries.associateWith { vm.smartSongs(it).size } }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalBottomSpace.current)) {
         item {
             LibraryRow(
@@ -185,6 +224,11 @@ private fun PlaylistsList(vm: MusicViewModel) {
                 },
             ) {
                 IconTile(Icons.Rounded.Favorite, null, Modifier.size(60.dp))
+            }
+        }
+        items(SmartPlaylist.entries, key = { "smart:" + it.name }) { kind ->
+            LibraryRow(kind.label, "Smart playlist · ${songCount(smartSizes[kind] ?: 0)}", onClick = { vm.open(Screen.Smart(kind)) }) {
+                IconTile(smartIcon(kind), "smart:" + kind.name, Modifier.size(60.dp))
             }
         }
         item {

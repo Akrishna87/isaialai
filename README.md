@@ -35,8 +35,21 @@ old one and keeps your playlists.
 - **Search** matches songs, artists, albums and folders as you type. With an
   empty search box it shows colourful browse tiles for your top artists,
   folders and albums.
-- **Your Library** has filter chips for Songs, Albums, Artists, Folders and
-  Playlists.
+- **Your Library** has filter chips for Songs, Albums, Artists, Composers,
+  Folders and Playlists. The ⋮ menu has **Find duplicate songs**.
+- **Music directors** (Composers): Tamil and other film songs list the
+  singers as the artist, so this groups songs by the Composer tag instead
+  (Ilaiyaraaja, A.R. Rahman, Anirudh…). Each music director's page shows
+  their movies and albums, newest first, then all their songs. A song's ⋮
+  menu has **Go to music director**, and Search finds them too.
+- **Smart playlists** under Playlists fill themselves: **Most played**,
+  **Recently added** (last 30 days), **Not played in a while** (played
+  before, but not in 2 months) and **Never played**.
+- **Duplicate finder**: lists songs saved more than once (same title and
+  artist, about the same length), e.g. from both WhatsApp and Telegram. Play
+  each copy to check it, then delete the extra one. Android asks you to
+  confirm each delete. Deleting works on Android 11 and later, for songs in
+  the phone's music library.
 - **Album, artist and playlist pages** show a big cover over a background
   coloured from the artwork, a round Play button, Shuffle, numbered album
   tracks and the total length.

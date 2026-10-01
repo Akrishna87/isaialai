@@ -51,6 +51,18 @@ scroll_down() { # swipe up on the middle of the screen
   sleep 1
 }
 playing() { session; grep -Eq "\{state=(PLAYING|3)" "$OUT/session.txt"; }
+chip() { # chip <name>: tap a Library tab chip, scrolling the chip row sideways if it's out of view
+  local i y
+  for i in 1 2 3 4 5 6; do
+    dump chips
+    if python3 "$HERE/find_text.py" "$OUT/chips.xml" "$1" > /dev/null 2>&1; then tap chips "$1"; return 0; fi
+    y=$(python3 "$HERE/find_text.py" "$OUT/chips.xml" "Your Library" | cut -d' ' -f2) || fail "not on the Library screen"
+    y=$((y + 150))
+    if [ "$i" -le 2 ]; then adb shell input swipe 900 $y 200 $y 300; else adb shell input swipe 200 $y 900 $y 300; fi
+    sleep 1
+  done
+  fail "couldn't find the '$1' tab"
+}
 
 adb wait-for-device
 adb install -r "$APK"
@@ -67,9 +79,13 @@ adb push "$SONGS/podcast.mp3" /sdcard/Podcasts/ > /dev/null
 adb shell mkdir -p /sdcard/Music/Hidden
 adb shell touch /sdcard/Music/Hidden/.nomedia
 adb push "$SONGS/hidden.mp3" /sdcard/Music/Hidden/ > /dev/null
+# The same song in two folders, for the duplicate finder.
+adb shell mkdir -p /sdcard/Music/TwinA /sdcard/Music/TwinB
+adb push "$SONGS/twin.mp3" /sdcard/Music/TwinA/ > /dev/null
+adb push "$SONGS/twin.mp3" /sdcard/Music/TwinB/ > /dev/null
 adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null 2>&1 || true
 for _ in $(seq 1 30); do
-  adb shell content query --uri content://media/external/audio/media --projection title | grep -q "Smoke Song 3" && break
+  [ "$(adb shell content query --uri content://media/external/audio/media --projection title | grep -c "Twin Song")" -ge 2 ] && break
   sleep 2
 done
 adb shell content query --uri content://media/external/audio/media --projection title:is_music:is_podcast:relative_path || true
@@ -197,8 +213,7 @@ adb shell am start -W -n "$PKG/.MainActivity"
 sleep 2
 dump reopened
 if grep -qi "playing from" "$OUT/reopened.xml"; then adb shell input keyevent KEYCODE_BACK; sleep 1; fi # close the full player if open
-dump lib-again
-tap lib-again "Albums"
+chip "Albums"
 sleep 2
 shot 6-albums
 dump albums
@@ -212,9 +227,25 @@ echo "PASS: albums and album page"
 adb shell input keyevent KEYCODE_BACK
 sleep 1
 
+echo "--- Music directors (Composer tag)"
+chip "Composers"
+sleep 2
+dump composers
+shot 7b-composers
+grep -q 'text="CI Composer"' "$OUT/composers.xml" || fail "Composers doesn't list the test songs' music director"
+tap composers "CI Composer"
+sleep 3
+dump composer-page
+shot 7c-composer-page
+grep -q 'text="Music director' "$OUT/composer-page.xml" || fail "the music director page didn't open"
+grep -q 'Movies &amp; albums\|Movies & albums' "$OUT/composer-page.xml" || fail "the music director page doesn't show their movies"
+grep -q 'text="Shuffle Album"' "$OUT/composer-page.xml" || fail "the music director's movies don't include all their albums"
+echo "PASS: browse by music director, with their movies"
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+
 echo "--- Browsing folders"
-dump before-folders
-tap before-folders "Folders"
+chip "Folders"
 sleep 2
 dump folders
 grep -q 'text="Music"' "$OUT/folders.xml" || fail "Folders doesn't show the Music folder"
@@ -314,8 +345,7 @@ echo "--- Shuffle (bug report: 'shuffle is not working')"
 dump before-shuffle
 tap before-shuffle "Library"
 sleep 2
-dump lib-shuffle
-tap lib-shuffle "Albums"
+chip "Albums"
 sleep 2
 dump albums-shuffle
 if ! grep -q 'text="Shuffle Album"' "$OUT/albums-shuffle.xml"; then scroll_down; dump albums-shuffle; fi
@@ -397,6 +427,60 @@ sys.exit(0 if len(shown) >= 4 and shown != in_order[:len(shown)] else 1)
 PY
 echo "PASS: turning shuffle back on reshuffles, keeping the current song"
 adb shell input keyevent KEYCODE_BACK # close the player
+sleep 1
+
+echo "--- Smart playlists"
+adb shell input keyevent KEYCODE_BACK # off the album page, back to the Library
+sleep 1
+chip "Playlists"
+sleep 2
+dump playlists
+shot 17-smart-playlists
+for name in "Most played" "Recently added" "Not played in a while" "Never played"; do
+  grep -q "text=\"$name\"" "$OUT/playlists.xml" || fail "the '$name' smart playlist is missing"
+done
+tap playlists "Most played"
+sleep 2
+dump most-played
+shot 18-most-played
+grep -q 'Smart playlist · [1-9][0-9]* songs\?' "$OUT/most-played.xml" || fail "Most played is empty after playing songs"
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+dump playlists2
+tap playlists2 "Never played"
+sleep 2
+dump never-played
+grep -q 'text="Twin Song"' "$OUT/never-played.xml" || fail "Never played doesn't list a song that was never played"
+grep -q 'text="Smoke Song 1"' "$OUT/never-played.xml" && fail "Never played lists a song that was played"
+echo "PASS: smart playlists fill themselves"
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+
+echo "--- Duplicate finder"
+dump before-dupes
+tap before-dupes "More options"
+sleep 1
+dump lib-menu
+tap lib-menu "Find duplicate songs"
+sleep 2
+dump dupes
+shot 19-duplicates
+grep -q 'text="Twin Song"' "$OUT/dupes.xml" || fail "the duplicate finder didn't find the song saved twice"
+grep -q '2 copies' "$OUT/dupes.xml" || fail "the duplicate finder doesn't show both copies"
+grep -q 'Smoke Song' "$OUT/dupes.xml" && fail "the duplicate finder lists songs that aren't duplicates"
+tap dupes "Delete the copy in Music/TwinB"
+sleep 3
+dump delete-confirm
+shot 20-delete-confirm
+tap delete-confirm "Allow"
+sleep 8
+dump dupes-after
+shot 21-duplicates-after
+grep -q "No duplicate songs found" "$OUT/dupes-after.xml" || fail "the deleted copy is still listed"
+adb shell ls /sdcard/Music/TwinB/twin.mp3 > /dev/null 2>&1 && fail "the copy wasn't deleted from the phone"
+adb shell ls /sdcard/Music/TwinA/twin.mp3 > /dev/null 2>&1 || fail "the other copy was deleted too"
+echo "PASS: duplicate finder finds a song saved twice and deletes the extra copy"
+adb shell input keyevent KEYCODE_BACK
 sleep 1
 
 echo "--- Home-screen widget"

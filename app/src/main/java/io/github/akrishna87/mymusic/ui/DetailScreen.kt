@@ -27,7 +27,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.akrishna87.mymusic.AlbumGroup
 import io.github.akrishna87.mymusic.FolderLevel
+import io.github.akrishna87.mymusic.SmartPlaylist
 import io.github.akrishna87.mymusic.LibraryGrouping
 import io.github.akrishna87.mymusic.MusicViewModel
 import io.github.akrishna87.mymusic.NameRequest
@@ -35,7 +37,10 @@ import io.github.akrishna87.mymusic.PlaylistStore
 import io.github.akrishna87.mymusic.Screen
 import io.github.akrishna87.mymusic.Song
 
-private enum class DetailKind(val label: String) { ALBUM("Album"), ARTIST("Artist"), PLAYLIST("Playlist"), LIKED("Playlist"), FOLDER("Folder") }
+private enum class DetailKind(val label: String) {
+    ALBUM("Album"), ARTIST("Artist"), PLAYLIST("Playlist"), LIKED("Playlist"), FOLDER("Folder"),
+    COMPOSER("Music director"), SMART("Smart playlist"),
+}
 
 private data class DetailData(
     val kind: DetailKind,
@@ -45,6 +50,9 @@ private data class DetailData(
     val playlistId: String? = null,
     /** Set for folder pages, which list subfolders as well as songs. */
     val folder: FolderLevel? = null,
+    /** A music director's movies and albums, shown above their songs. */
+    val albums: List<AlbumGroup> = emptyList(),
+    val smart: SmartPlaylist? = null,
 ) {
     val subtitle: String
         get() = listOf(kind.label, byline, songCount(songs.size), totalTime(songs)).filter { it.isNotEmpty() }.joinToString(" · ")
@@ -79,6 +87,19 @@ private fun detailFor(vm: MusicViewModel, screen: Screen): DetailData? {
                 DetailData(DetailKind.FOLDER, path.substringAfterLast('/'), level.allSongs, byline = path, folder = level)
             }
         }
+        is Screen.Composer -> remember(screen, songs) {
+            LibraryGrouping.composers(songs).firstOrNull { it.name.equals(screen.name, ignoreCase = true) }?.let {
+                val movies = if (it.albums.size == 1) "1 movie or album" else "${it.albums.size} movies and albums"
+                DetailData(DetailKind.COMPOSER, it.name, it.songs, byline = movies, albums = it.albums)
+            }
+        }
+        is Screen.Smart -> {
+            val counts = vm.countsVersion
+            remember(screen, songs, counts) {
+                DetailData(DetailKind.SMART, screen.kind.label, vm.smartSongs(screen.kind, songs), smart = screen.kind)
+            }
+        }
+        Screen.Duplicates -> null
         is Screen.PlaylistDetail -> {
             val playlist = vm.playlists.get(screen.id)
             val byId = vm.songsById
@@ -108,8 +129,19 @@ fun DetailScreen(vm: MusicViewModel, screen: Screen) {
         } else {
             LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = LocalBottomSpace.current)) {
                 item { Hero(vm, detail, color) }
+                if (detail.albums.size > 1) {
+                    item {
+                        CardRow("Movies & albums", detail.albums, { it.key }) { a ->
+                            AlbumCard(a, onClick = { vm.open(Screen.Album(a.key)) }, subtitle = a.songs.maxOf { it.year }.takeIf { it > 0 }?.toString() ?: a.artist)
+                        }
+                    }
+                    item { SectionTitle("Songs") }
+                }
                 when {
                     detail.folder != null -> folderItems(vm, detail.folder)
+                    detail.smart != null && detail.songs.isEmpty() -> item {
+                        Text("Nothing here yet. ${detail.smart.blurb}.", Modifier.padding(24.dp), color = Palette.SubText)
+                    }
                     detail.songs.isEmpty() -> item {
                         Text("No songs here yet. Use a song's ⋮ menu → “Add to playlist…”.", Modifier.padding(24.dp), color = Palette.SubText)
                     }
@@ -161,7 +193,10 @@ private fun Hero(vm: MusicViewModel, detail: DetailData, color: Color) {
             when (detail.kind) {
                 DetailKind.FOLDER -> FolderIcon(detail.folder?.path.orEmpty(), size = 230.dp, shape = RoundedCornerShape(8.dp))
                 DetailKind.LIKED -> IconTile(Icons.Rounded.Favorite, null, cover, RoundedCornerShape(8.dp), iconSize = 96.dp)
-                DetailKind.ARTIST -> ArtImage(detail.songs.firstOrNull(), cover, sizePx = 600, shape = CircleShape, iconSize = 72.dp)
+                DetailKind.SMART -> detail.smart?.let {
+                    IconTile(smartIcon(it), "smart:" + it.name, cover, RoundedCornerShape(8.dp), iconSize = 96.dp)
+                }
+                DetailKind.ARTIST, DetailKind.COMPOSER -> ArtImage(detail.songs.firstOrNull(), cover, sizePx = 600, shape = CircleShape, iconSize = 72.dp)
                 else -> ArtImage(detail.songs.firstOrNull(), cover, sizePx = 600, shape = RoundedCornerShape(8.dp), iconSize = 72.dp)
             }
         }
@@ -169,6 +204,7 @@ private fun Hero(vm: MusicViewModel, detail: DetailData, color: Color) {
         Text(detail.title, style = MaterialTheme.typography.headlineMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(6.dp))
         Text(detail.subtitle, color = Palette.SubText, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        detail.smart?.let { Text(it.blurb, color = Palette.SubText, fontSize = 13.sp) }
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(

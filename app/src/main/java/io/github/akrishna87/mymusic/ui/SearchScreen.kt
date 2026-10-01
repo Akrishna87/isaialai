@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.akrishna87.mymusic.ArtistGroup
 import io.github.akrishna87.mymusic.LibraryGrouping
 import io.github.akrishna87.mymusic.MusicViewModel
 import io.github.akrishna87.mymusic.Screen
@@ -151,9 +152,10 @@ private fun SearchResults(vm: MusicViewModel, query: String) {
         LibraryGrouping.albums(songs).filter { it.name.contains(query, true) || it.artist.contains(query, true) }.take(15)
     }
     val artists = remember(songs, query) { LibraryGrouping.artists(songs).filter { it.name.contains(query, true) }.take(15) }
+    val composers = remember(songs, query) { LibraryGrouping.composers(songs).filter { it.name.contains(query, true) }.take(15) }
     val folders = remember(songs, query) { LibraryGrouping.searchFolders(songs, query).take(10) }
 
-    if (matchedSongs.isEmpty() && albums.isEmpty() && artists.isEmpty() && folders.isEmpty()) {
+    if (matchedSongs.isEmpty() && albums.isEmpty() && artists.isEmpty() && composers.isEmpty() && folders.isEmpty()) {
         Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Nothing found for “$query”", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
@@ -170,6 +172,11 @@ private fun SearchResults(vm: MusicViewModel, query: String) {
         }
         item {
             CardRow("Artists", artists, { it.name.lowercase() }) { a -> ArtistBubble(a, onClick = { vm.open(Screen.Artist(a.name)) }) }
+        }
+        item {
+            CardRow("Music directors", composers, { "c:" + it.name.lowercase() }) { c ->
+                ArtistBubble(ArtistGroup(c.name, c.songs), onClick = { vm.open(Screen.Composer(c.name)) }, label = "Music director")
+            }
         }
         item {
             CardRow("Albums", albums, { it.key }) { a -> AlbumCard(a, onClick = { vm.open(Screen.Album(a.key)) }) }

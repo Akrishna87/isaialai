@@ -42,6 +42,8 @@ import androidx.compose.ui.unit.sp
 import io.github.akrishna87.mymusic.AlbumGroup
 import io.github.akrishna87.mymusic.ArtLoader
 import io.github.akrishna87.mymusic.ArtistGroup
+import io.github.akrishna87.mymusic.LibraryGrouping
+import io.github.akrishna87.mymusic.SmartPlaylist
 import io.github.akrishna87.mymusic.MusicViewModel
 import io.github.akrishna87.mymusic.NameRequest
 import io.github.akrishna87.mymusic.Screen
@@ -169,6 +171,9 @@ fun SongMenu(vm: MusicViewModel, song: Song, expanded: Boolean, onDismiss: () ->
         MenuItem("Add to playlist…", Icons.AutoMirrored.Rounded.PlaylistAdd) { onDismiss(); vm.playlistPickerFor = song }
         MenuItem("Go to album", Icons.Rounded.Album) { onDismiss(); vm.open(Screen.Album(song.albumKey)) }
         MenuItem("Go to artist", Icons.Rounded.Person) { onDismiss(); vm.open(Screen.Artist(song.artist)) }
+        LibraryGrouping.composerNames(song.composer).firstOrNull()?.let { composer ->
+            MenuItem("Go to music director", Icons.Rounded.LibraryMusic) { onDismiss(); vm.open(Screen.Composer(composer)) }
+        }
         MenuItem("Go to folder", Icons.Rounded.Folder) { onDismiss(); vm.open(Screen.Folder(song.folder)) }
         if (playlistId != null) {
             MenuItem("Remove from this playlist", Icons.Rounded.RemoveCircleOutline) { onDismiss(); vm.playlists.remove(playlistId, song.id) }
@@ -196,7 +201,7 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun AlbumCard(album: AlbumGroup, onClick: () -> Unit, size: Dp = 150.dp) {
+fun AlbumCard(album: AlbumGroup, onClick: () -> Unit, size: Dp = 150.dp, subtitle: String = album.artist) {
     Column(Modifier.width(size).clickable(onClick = onClick)) {
         ArtImage(
             album.songs.first(),
@@ -207,17 +212,17 @@ fun AlbumCard(album: AlbumGroup, onClick: () -> Unit, size: Dp = 150.dp) {
         )
         Spacer(Modifier.height(8.dp))
         Text(album.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
-        Text(album.artist, color = Palette.SubText, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
+        Text(subtitle, color = Palette.SubText, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
     }
 }
 
 @Composable
-fun ArtistBubble(artist: ArtistGroup, onClick: () -> Unit, size: Dp = 120.dp) {
+fun ArtistBubble(artist: ArtistGroup, onClick: () -> Unit, size: Dp = 120.dp, label: String = "Artist") {
     Column(Modifier.width(size).clickable(onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally) {
         ArtImage(artist.songs.first(), Modifier.size(size), sizePx = 300, shape = CircleShape, iconSize = 36.dp)
         Spacer(Modifier.height(8.dp))
         Text(artist.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
-        Text("Artist", color = Palette.SubText, fontSize = 13.sp)
+        Text(label, color = Palette.SubText, fontSize = 13.sp)
     }
 }
 
@@ -360,4 +365,11 @@ fun NameDialog(request: NameRequest, onDismiss: () -> Unit) {
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+fun smartIcon(kind: SmartPlaylist): ImageVector = when (kind) {
+    SmartPlaylist.MOST_PLAYED -> Icons.Rounded.Whatshot
+    SmartPlaylist.RECENTLY_ADDED -> Icons.Rounded.NewReleases
+    SmartPlaylist.NOT_PLAYED_LATELY -> Icons.Rounded.History
+    SmartPlaylist.NEVER_PLAYED -> Icons.Rounded.AutoAwesome
 }

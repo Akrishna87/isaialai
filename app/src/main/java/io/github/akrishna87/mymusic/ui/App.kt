@@ -52,6 +52,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.akrishna87.mymusic.MusicViewModel
+import io.github.akrishna87.mymusic.Screen
 import io.github.akrishna87.mymusic.R
 import io.github.akrishna87.mymusic.Section
 import kotlin.math.abs
@@ -167,6 +168,7 @@ private fun Shell(vm: MusicViewModel) {
             ) { (screen, section) ->
                 when {
                     vm.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    screen == Screen.Duplicates -> DuplicatesScreen(vm)
                     screen != null -> DetailScreen(vm, screen)
                     vm.songs.isEmpty() && section != Section.LIBRARY -> EmptyLibrary(vm)
                     section == Section.HOME -> HomeScreen(vm)

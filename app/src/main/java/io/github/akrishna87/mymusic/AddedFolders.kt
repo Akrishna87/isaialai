@@ -138,6 +138,8 @@ object AddedFolders {
                         folder = dirPath,
                         fileName = name,
                         locationKey = locationKey,
+                        composer = t.composer,
+                        year = t.year,
                     )
                 }
             }
@@ -150,7 +152,21 @@ object AddedFolders {
 
 /** Song tags read with MediaMetadataRetriever, cached on disk so rescans are fast. */
 private class TagCache(context: Context) {
-    data class Tags(val title: String, val artist: String, val album: String, val albumArtist: String, val durationMs: Long, val track: Int)
+    data class Tags(
+        val title: String,
+        val artist: String,
+        val album: String,
+        val albumArtist: String,
+        val durationMs: Long,
+        val track: Int,
+        val composer: String = "",
+        val year: Int = 0,
+    )
+
+    private companion object {
+        /** Bumped when more tags are read, so cached files are read again once. */
+        const val VERSION = 2
+    }
 
     private val file = File(context.filesDir, "folder-tags.json")
     private val entries: JSONObject = try {
@@ -161,19 +177,21 @@ private class TagCache(context: Context) {
     private val used = HashSet<String>()
     private var dirty = false
 
-    fun get(context: Context, uri: Uri, stamp: String): Tags {
+    fun get(context: Context, uri: Uri, fileStamp: String): Tags {
         val key = uri.toString()
+        val stamp = "$fileStamp|$VERSION"
         used += key
         entries.optJSONObject(key)?.let { o ->
             if (o.optString("stamp") == stamp) {
-                return Tags(o.optString("t"), o.optString("a"), o.optString("al"), o.optString("aa"), o.optLong("d"), o.optInt("n"))
+                return Tags(o.optString("t"), o.optString("a"), o.optString("al"), o.optString("aa"), o.optLong("d"), o.optInt("n"), o.optString("c"), o.optInt("y"))
             }
         }
         val tags = read(context, uri)
         entries.put(
             key,
             JSONObject().put("stamp", stamp).put("t", tags.title).put("a", tags.artist).put("al", tags.album)
-                .put("aa", tags.albumArtist).put("d", tags.durationMs).put("n", tags.track),
+                .put("aa", tags.albumArtist).put("d", tags.durationMs).put("n", tags.track)
+                .put("c", tags.composer).put("y", tags.year),
         )
         dirty = true
         return tags
@@ -191,6 +209,8 @@ private class TagCache(context: Context) {
                 albumArtist = tag(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST),
                 durationMs = tag(MediaMetadataRetriever.METADATA_KEY_DURATION).toLongOrNull() ?: 0L,
                 track = tag(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER).substringBefore('/').trim().toIntOrNull() ?: 0,
+                composer = tag(MediaMetadataRetriever.METADATA_KEY_COMPOSER),
+                year = tag(MediaMetadataRetriever.METADATA_KEY_YEAR).take(4).toIntOrNull() ?: 0,
             )
         } catch (e: Exception) {
             Tags("", "", "", "", 0L, 0)
