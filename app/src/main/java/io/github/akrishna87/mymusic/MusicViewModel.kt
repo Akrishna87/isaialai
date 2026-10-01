@@ -484,10 +484,14 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
-    /** Takes a song out of the queue ([queueIndex] as in [upNext]). */
-    fun removeFromQueue(queueIndex: Int) {
+    /**
+     * Takes a song out of the queue ([queueIndex] and [songId] as in [upNext]). Does nothing if that
+     * place in the queue now holds a different song, so a repeated request can't remove the next one.
+     */
+    fun removeFromQueue(queueIndex: Int, songId: String) {
         val c = controller ?: return
         if (queueIndex !in 0 until c.mediaItemCount || queueIndex == c.currentMediaItemIndex) return
+        if (c.getMediaItemAt(queueIndex).mediaId != songId) return
         val title = c.getMediaItemAt(queueIndex).mediaMetadata.title
         upNext = upNext.filter { it.first != queueIndex }
         c.removeMediaItem(queueIndex)

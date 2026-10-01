@@ -399,10 +399,15 @@ private fun UpNextList(vm: MusicViewModel) {
                 from > target && pos in target until from -> rowPx
                 else -> 0f
             }
+            // The swipe can report "dismissed" more than once; remove the song only the first time.
+            var removed by remember { mutableStateOf(false) }
             val dismiss = rememberSwipeToDismissBoxState(
                 confirmValueChange = { value ->
                     if (value == SwipeToDismissBoxValue.EndToStart) {
-                        vm.removeFromQueue(index)
+                        if (!removed) {
+                            removed = true
+                            vm.removeFromQueue(index, id)
+                        }
                         true
                     } else {
                         false
