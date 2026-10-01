@@ -591,13 +591,10 @@ grep -q 'Crossfade: 5 s' "$OUT/settings-xfade.xml" || fail "choosing a 5 s cross
 scroll_down # Even volume is at the bottom, under the mini player
 dump settings-scrolled
 tap settings-scrolled "Even volume"
-sleep 1
+sleep 3 # long enough to measure the song playing now
 dump settings-on
-python3 - "$OUT/settings-on.xml" <<'PY' || fail "the Even volume switch didn't turn on"
-import sys, xml.etree.ElementTree as ET
-nodes = [n for n in ET.parse(sys.argv[1]).iter("node") if n.get("content-desc") == "Even volume"]
-sys.exit(0 if nodes and nodes[0].get("checked") == "true" else 1)
-PY
+grep -q "turned up\|turned down\|already at the right level" "$OUT/settings-on.xml" \
+  || fail "the Even volume switch didn't turn on (no level shown for the song playing)"
 adb shell input keyevent KEYCODE_BACK
 sleep 1
 chip "Songs"
