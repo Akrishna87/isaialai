@@ -91,30 +91,32 @@ jobs:
           name: old-key-apk
           path: old-key
       - name: Make test songs
+        timeout-minutes: 10
         run: |
+          set -x
           command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
           mkdir -p songs
           for i in 1 2 3; do
-            ffmpeg -loglevel error -f lavfi -i "sine=frequency=$((300 + i * 110)):duration=60" -c:a libmp3lame \
+            ffmpeg -nostdin -loglevel error -f lavfi -i "sine=frequency=$((300 + i * 110)):duration=60" -c:a libmp3lame \
               -metadata title="Smoke Song $i" -metadata artist="CI Band" -metadata album="CI Album" -metadata track=$i \
               -metadata composer="CI Composer" -metadata date=2021 \
               "songs/song$i.mp3"
           done
           # a 12-song album for the shuffle test
           for i in $(seq -w 1 12); do
-            ffmpeg -loglevel error -f lavfi -i "sine=frequency=$((200 + 10#$i * 40)):duration=60" -c:a libmp3lame \
+            ffmpeg -nostdin -loglevel error -f lavfi -i "sine=frequency=$((200 + 10#$i * 40)):duration=60" -c:a libmp3lame \
               -metadata title="Tune $i" -metadata artist="Shuffle Band" -metadata album="Shuffle Album" -metadata track=$((10#$i)) \
               -metadata composer="CI Composer" \
               "songs/tune$i.mp3"
           done
           # the same song saved twice (in two folders), for the duplicate finder
-          ffmpeg -loglevel error -f lavfi -i "sine=frequency=880:duration=45" -c:a libmp3lame \
+          ffmpeg -nostdin -loglevel error -f lavfi -i "sine=frequency=880:duration=45" -c:a libmp3lame \
             -metadata title="Twin Song" -metadata artist="Twin Band" -metadata album="Twin Album" songs/twin.mp3
           # Android marks songs in a Podcasts folder as "not music"
-          ffmpeg -loglevel error -f lavfi -i "sine=frequency=660:duration=60" -c:a libmp3lame \
+          ffmpeg -nostdin -loglevel error -f lavfi -i "sine=frequency=660:duration=60" -c:a libmp3lame \
             -metadata title="Smoke Podcast Song" -metadata artist="CI Band" -metadata album="CI Extras" songs/podcast.mp3
           # goes in a folder with a .nomedia file, which Android's media library skips
-          ffmpeg -loglevel error -f lavfi -i "sine=frequency=770:duration=60" -c:a libmp3lame \
+          ffmpeg -nostdin -loglevel error -f lavfi -i "sine=frequency=770:duration=60" -c:a libmp3lame \
             -metadata title="Smoke Hidden Song" -metadata artist="Hidden Band" -metadata album="Hidden Album" songs/hidden.mp3
           # timed lyrics next to it, as an .lrc file
           printf '%s\n' "[ti:Smoke Hidden Song]" "[00:00.50]First line of the hidden song" "[00:05.00]Second line here" \
@@ -133,6 +135,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Install and run on an Android 14 emulator
+        timeout-minutes: 40
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 34
