@@ -604,6 +604,7 @@ dump songs-loud
 tap songs-loud "Loud Song"
 sleep 6 # long enough to measure it
 open_settings
+scroll_down # the level line is under Even volume, near the bottom
 dump settings-loud
 shot 23-even-volume
 grep -q "Loud Song.*turned down" "$OUT/settings-loud.xml" || fail "even volume didn't turn the loud song down"
