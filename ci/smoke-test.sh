@@ -118,12 +118,65 @@ echo "PASS: full player opens"
 tap nowplaying "Like" last # the heart on the full player (the mini player's is underneath)
 sleep 1
 
+echo "--- Equaliser"
+tap nowplaying "Equalizer" last # the button on the full player (Home's is underneath)
+sleep 2
+dump eq
+shot 4b-equalizer
+grep -q 'text="Equalizer"' "$OUT/eq.xml" || fail "the equaliser screen didn't open"
+if grep -q "Hz" "$OUT/eq.xml"; then
+  tap eq "Equalizer on/off"
+  sleep 1
+  tap eq "Equalizer bands" # tap the middle of the curve: sets a band
+  sleep 1
+  shot 4c-equalizer-on
+  echo "PASS: equaliser opens and can be adjusted"
+elif grep -q "doesn" "$OUT/eq.xml"; then
+  echo "PASS: equaliser opens (this emulator has no equaliser effect, and the screen says so)"
+else
+  fail "the equaliser screen shows neither bands nor an explanation"
+fi
+adb shell input keyevent KEYCODE_BACK # close the equaliser, back to the player
+sleep 1
+
+echo "--- Sleep timer"
+dump before-sleep
+tap before-sleep "Sleep timer"
+sleep 1
+dump sleep-dialog
+tap sleep-dialog "15 minutes"
+sleep 2
+dump sleep-on
+grep -q 'content-desc="Sleep timer: 1[45]:' "$OUT/sleep-on.xml" || fail "the sleep timer doesn't show its countdown"
+shot 4d-sleep-timer
+tap sleep-on "Sleep timer" # matches "Sleep timer: 14:58 left"
+sleep 1
+dump sleep-dialog2
+tap sleep-dialog2 "Turn off timer"
+sleep 2
+dump sleep-off
+grep -q 'content-desc="Sleep timer"' "$OUT/sleep-off.xml" || fail "the sleep timer didn't turn off"
+echo "PASS: sleep timer can be set and turned off"
+
 echo "--- Media 'next' button (headphones / lock screen)"
 adb shell input keyevent KEYCODE_MEDIA_NEXT
 sleep 3
 session
 grep -q "Smoke Song 2" "$OUT/session.txt" || fail "the media next button didn't skip to the next song"
 echo "PASS: media next button works"
+
+echo "--- Swipe gestures on the full player"
+SIZE=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); W=${SIZE%x*}; H=${SIZE#*x}
+adb shell input swipe $((W * 8 / 10)) $((H * 38 / 100)) $((W * 2 / 10)) $((H * 38 / 100)) 250 # swipe the cover left
+sleep 3
+session
+grep -q "Smoke Song 3" "$OUT/session.txt" || fail "swiping the cover left didn't skip to the next song"
+echo "PASS: swipe the cover to change song"
+adb shell input swipe $((W / 2)) $((H * 25 / 100)) $((W / 2)) $((H * 85 / 100)) 300 # swipe down
+sleep 2
+dump after-swipe-down
+if grep -qi "playing from" "$OUT/after-swipe-down.xml"; then fail "swiping down didn't close the player"; fi
+echo "PASS: swipe down closes the player"
 
 echo "--- Background playback"
 adb shell input keyevent KEYCODE_HOME
@@ -138,8 +191,8 @@ adb shell cmd statusbar collapse
 echo "--- Albums"
 adb shell am start -W -n "$PKG/.MainActivity"
 sleep 2
-adb shell input keyevent KEYCODE_BACK # close the full player if it's still open
-sleep 1
+dump reopened
+if grep -qi "playing from" "$OUT/reopened.xml"; then adb shell input keyevent KEYCODE_BACK; sleep 1; fi # close the full player if open
 dump lib-again
 tap lib-again "Albums"
 sleep 2
@@ -252,6 +305,10 @@ dump liked
 shot 14-liked
 grep -q "Smoke Song 1" "$OUT/liked.xml" || fail "the liked song isn't in Liked songs"
 echo "PASS: liking a song adds it to Liked songs"
+
+echo "--- Home-screen widget"
+adb shell dumpsys appwidget | grep -q "mymusic.PlayerWidget" || fail "the home-screen widget isn't registered with the launcher"
+echo "PASS: home-screen widget is available"
 
 if adb logcat -d | grep -q "FATAL EXCEPTION"; then
   adb logcat -d > "$OUT/logcat.txt"

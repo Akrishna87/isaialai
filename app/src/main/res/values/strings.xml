@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">My Music</string>
+    <string name="widget_description">See what\'s playing and control it from your home screen</string>
+    <string name="widget_tap_to_open">Tap to open</string>
+    <string name="widget_play">Play</string>
+    <string name="widget_previous">Previous song</string>
+    <string name="widget_next">Next song</string>
 </resources>

@@ -37,6 +37,21 @@ old one and keeps your playlists.
   tracks and the total length.
 - **Full player** with a background tinted by the cover, a cover that eases
   back when paused, a slim seek bar, a ♥ like button and "Playing from …".
+- **Equaliser**: tap the sliders icon on the full player or on Home. Turn it on,
+  pick one of the phone's presets (Normal, Pop, Rock, Jazz…) or drag each band
+  on the curve. There's also a **Bass boost** slider where the phone supports
+  it. Settings are remembered and apply straight away, even in the background.
+  Some phones don't let apps use their equaliser; the screen says so if yours
+  doesn't.
+- **Sleep timer**: tap the moon on the full player. Choose 15, 30 or 45
+  minutes, 1 hour, or the end of the current song. The music fades out
+  gently, and the time left shows next to the moon.
+- **Swipe gestures**:
+  - On the mini player: swipe left for the next song, right for the previous one.
+  - On the full player: swipe the cover to change song, and swipe down to close.
+- **Home-screen widget**: long-press your home screen → Widgets → My Music.
+  It shows the cover, title and artist with ⏮ ⏯ ⏭, works when the app is
+  closed, and opens the app when you tap it.
 - **Liked songs**: tap ♥ on the mini player or the full player, or use any
   song's ⋮ menu. Liked songs is a playlist at the top of your Library and on
   Home.
@@ -90,6 +105,8 @@ Requires Android 8.0 or newer.
 | `ui/DetailScreen.kt` | Album, artist, playlist and folder pages |
 | `ui/NowPlaying.kt` | Full-screen player and Up next |
 | `ui/ArtColors.kt` | Picks each cover's colour (androidx.palette) for the tinted backgrounds |
+| `ui/EqualizerScreen.kt`, `Effects.kt` | Equaliser screen and its settings; `PlaybackService` owns the effects and the sleep timer |
+| `PlayerWidget.kt` | Home-screen widget and its buttons |
 
 ## Building
 

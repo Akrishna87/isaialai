@@ -1,6 +1,7 @@
 package io.github.akrishna87.mymusic.ui
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -8,6 +9,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,17 +25,26 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import io.github.akrishna87.mymusic.MusicViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 @Composable
 fun NowPlaying(vm: MusicViewModel) {
@@ -45,13 +57,32 @@ fun NowPlaying(vm: MusicViewModel) {
     // The cover eases back a little when paused.
     val artScale by animateFloatAsState(if (vm.isPlaying) 1f else 0.86f, spring(dampingRatio = 0.65f, stiffness = 220f), label = "artScale")
     val dim = Color.White.copy(alpha = 0.7f)
+    var sleepDialog by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    // Swipe down anywhere to close the player.
+    val dragDown = remember { Animatable(0f) }
+    // Swipe the cover sideways to change song.
+    var swipeX by remember { mutableFloatStateOf(0f) }
 
     Box(
         Modifier
             .fillMaxSize()
+            .offset { IntOffset(0, dragDown.value.roundToInt()) }
             .background(Brush.verticalGradient(listOf(color.deep(0.1f), color.deep(0.65f), Color(0xFF070709))))
             // Swallow taps so they don't reach the screen underneath.
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragEnd = {
+                        if (dragDown.value > size.height * 0.2f) vm.showPlayer = false
+                        else scope.launch { dragDown.animateTo(0f) }
+                    },
+                    onDragCancel = { scope.launch { dragDown.animateTo(0f) } },
+                ) { change, dy ->
+                    change.consume()
+                    scope.launch { dragDown.snapTo((dragDown.value + dy).coerceAtLeast(0f)) }
+                }
+            },
     ) {
         Column(Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 24.dp)) {
             Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -78,12 +109,34 @@ fun NowPlaying(vm: MusicViewModel) {
                 if (queue) {
                     UpNextList(vm)
                 } else {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .pointerInput(Unit) {
+                                detectHorizontalDragGestures(
+                                    onDragEnd = {
+                                        val threshold = 80.dp.toPx()
+                                        if (swipeX < -threshold) vm.next() else if (swipeX > threshold) vm.previousTrack()
+                                        swipeX = 0f
+                                    },
+                                    onDragCancel = { swipeX = 0f },
+                                ) { change, dx ->
+                                    change.consume()
+                                    swipeX += dx
+                                }
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
                         ArtImage(
                             song,
                             Modifier
                                 .aspectRatio(1f)
-                                .graphicsLayer { scaleX = artScale; scaleY = artScale }
+                                .graphicsLayer {
+                                    scaleX = artScale
+                                    scaleY = artScale
+                                    translationX = swipeX * 0.6f
+                                    alpha = 1f - (abs(swipeX) / 1200f).coerceAtMost(0.4f)
+                                }
                                 .shadow(30.dp, RoundedCornerShape(10.dp)),
                             sizePx = 900,
                             shape = RoundedCornerShape(10.dp),
@@ -173,7 +226,16 @@ fun NowPlaying(vm: MusicViewModel) {
                 }
             }
 
-            Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 10.dp), horizontalArrangement = Arrangement.End) {
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { vm.showEqualizer = true }) {
+                    Icon(
+                        Icons.Rounded.Tune,
+                        "Equalizer",
+                        tint = if (vm.eqSettings.enabled) MaterialTheme.colorScheme.primary else dim,
+                    )
+                }
+                SleepButton(vm, dim) { sleepDialog = true }
+                Spacer(Modifier.weight(1f))
                 IconButton(onClick = { showQueue = !showQueue }) {
                     Icon(
                         Icons.AutoMirrored.Rounded.QueueMusic,
@@ -184,6 +246,77 @@ fun NowPlaying(vm: MusicViewModel) {
             }
         }
     }
+    if (sleepDialog) SleepTimerDialog(vm) { sleepDialog = false }
+}
+
+@Composable
+private fun SleepButton(vm: MusicViewModel, dim: Color, onClick: () -> Unit) {
+    val now by produceState(System.currentTimeMillis()) {
+        while (true) {
+            value = System.currentTimeMillis()
+            delay(1000)
+        }
+    }
+    val left = (vm.sleepUntil - now).coerceAtLeast(0)
+    val active = vm.sleepEndOfSong || left > 0
+    val label = when {
+        vm.sleepEndOfSong -> "End of song"
+        left > 0 -> formatTime(left)
+        else -> ""
+    }
+    Row(
+        Modifier.clip(CircleShape).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 12.dp)
+            .semantics(mergeDescendants = true) { contentDescription = if (active) "Sleep timer: $label left" else "Sleep timer" },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.Bedtime, contentDescription = null, tint = if (active) MaterialTheme.colorScheme.primary else dim)
+        if (active) {
+            Spacer(Modifier.width(6.dp))
+            Text(label, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+fun SleepTimerDialog(vm: MusicViewModel, onDismiss: () -> Unit) {
+    val active = vm.sleepEndOfSong || vm.sleepUntil > System.currentTimeMillis()
+    val choices = listOf("15 minutes" to 15, "30 minutes" to 30, "45 minutes" to 45, "1 hour" to 60, "End of this song" to -1)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Palette.Elevated,
+        icon = { Icon(Icons.Rounded.Bedtime, contentDescription = null) },
+        title = { Text("Sleep timer") },
+        text = {
+            Column {
+                Text("Music fades out and stops after:", color = Palette.SubText, modifier = Modifier.padding(bottom = 8.dp))
+                choices.forEach { (label, minutes) ->
+                    Text(
+                        label,
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onDismiss(); vm.setSleepTimer(minutes) }
+                            .padding(vertical = 13.dp, horizontal = 8.dp),
+                        fontSize = 16.sp,
+                    )
+                }
+                if (active) {
+                    Text(
+                        "Turn off timer",
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onDismiss(); vm.setSleepTimer(0) }
+                            .padding(vertical = 13.dp, horizontal = 8.dp),
+                        fontSize = 16.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable

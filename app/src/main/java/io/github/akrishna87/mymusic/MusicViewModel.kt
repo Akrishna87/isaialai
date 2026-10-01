@@ -85,6 +85,22 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     var countsVersion by mutableIntStateOf(0); private set
     private var lastRecorded: String? = null
 
+    // ----- Equaliser & sleep timer (applied by PlaybackService) -----
+    private val effectsPrefs = Effects.prefs(app)
+    /** What the phone's equaliser offers; null until the player service has started once. */
+    var eqInfo by mutableStateOf(Effects.readInfo(effectsPrefs)); private set
+    var eqSettings by mutableStateOf(Effects.read(effectsPrefs)); private set
+    var showEqualizer by mutableStateOf(false)
+    /** When the sleep timer stops playback (ms since epoch), or 0. */
+    var sleepUntil by mutableLongStateOf(effectsPrefs.getLong(Effects.KEY_SLEEP_UNTIL, 0L)); private set
+    var sleepEndOfSong by mutableStateOf(effectsPrefs.getBoolean(Effects.KEY_SLEEP_END_OF_SONG, false)); private set
+    private val effectsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { p, _ ->
+        eqInfo = Effects.readInfo(p)
+        eqSettings = Effects.read(p)
+        sleepUntil = p.getLong(Effects.KEY_SLEEP_UNTIL, 0L)
+        sleepEndOfSong = p.getBoolean(Effects.KEY_SLEEP_END_OF_SONG, false)
+    }
+
     // ----- Player mirror -----
     var currentId by mutableStateOf<String?>(null); private set
     var currentTitle by mutableStateOf(""); private set
@@ -146,7 +162,12 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    init {
+        effectsPrefs.registerOnSharedPreferenceChangeListener(effectsListener)
+    }
+
     override fun onCleared() {
+        effectsPrefs.unregisterOnSharedPreferenceChangeListener(effectsListener)
         if (observing) getApplication<Application>().contentResolver.unregisterContentObserver(mediaObserver)
         controller?.removeListener(playerListener)
         MediaController.releaseFuture(controllerFuture)
@@ -256,6 +277,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun back(): Boolean = when {
+        showEqualizer -> { showEqualizer = false; true }
         showPlayer -> { showPlayer = false; true }
         screens.isNotEmpty() -> { screens.removeAt(screens.lastIndex); true }
         else -> false
@@ -360,6 +382,8 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
     fun next() = controller?.seekToNextMediaItem()
     fun previous() = controller?.seekToPrevious()
+    /** Always the song before (used by swipe gestures), never "restart this song". */
+    fun previousTrack() = controller?.seekToPreviousMediaItem()
     fun seekTo(ms: Long) = controller?.seekTo(ms)
     fun jumpTo(index: Int) = controller?.let { it.seekTo(index, 0L); it.play() }
 
@@ -375,6 +399,61 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
             Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
             else -> Player.REPEAT_MODE_OFF
         }
+    }
+
+    // ----- Equaliser -----
+
+    private fun updateEq(s: Effects.Settings) {
+        eqSettings = s
+        Effects.write(effectsPrefs, s)
+    }
+
+    /** The band levels currently in effect: the chosen preset's, or the person's own. */
+    fun eqLevels(): List<Int> {
+        val info = eqInfo ?: return emptyList()
+        val s = eqSettings
+        return if (s.preset in info.presets.indices) info.presets[s.preset].second
+        else List(info.bandsHz.size) { s.levels.getOrElse(it) { 0 } }
+    }
+
+    fun setEqEnabled(on: Boolean) = updateEq(eqSettings.copy(enabled = on))
+
+    fun selectEqPreset(index: Int) {
+        val levels = eqInfo?.presets?.getOrNull(index)?.second ?: eqLevels()
+        updateEq(eqSettings.copy(preset = index, levels = levels, enabled = true))
+    }
+
+    fun setEqBand(band: Int, level: Int) {
+        val levels = eqLevels().toMutableList()
+        if (band !in levels.indices) return
+        levels[band] = level
+        updateEq(eqSettings.copy(preset = -1, levels = levels, enabled = true))
+    }
+
+    fun setBassBoost(strength: Int) = updateEq(eqSettings.copy(bass = strength, enabled = true))
+
+    fun resetEq() {
+        val info = eqInfo ?: return
+        val flat = info.presets.indexOfFirst { it.second.all { level -> level == 0 } }
+        updateEq(Effects.Settings(eqSettings.enabled, preset = flat, levels = List(info.bandsHz.size) { 0 }, bass = 0))
+    }
+
+    // ----- Sleep timer -----
+
+    /** [minutes] > 0 stops after that long, -1 at the end of the current song, 0 cancels. */
+    fun setSleepTimer(minutes: Int) {
+        val c = controller ?: return
+        c.sendCustomCommand(
+            SessionCommand(PlaybackService.CMD_SLEEP, Bundle.EMPTY),
+            Bundle().apply { putInt("minutes", minutes) },
+        )
+        messageChannel.trySend(
+            when {
+                minutes > 0 -> "Music will stop in ${if (minutes >= 60) "${minutes / 60} hour" else "$minutes minutes"}"
+                minutes == -1 -> "Music will stop at the end of this song"
+                else -> "Sleep timer off"
+            }
+        )
     }
 
     // ----- Playlists -----

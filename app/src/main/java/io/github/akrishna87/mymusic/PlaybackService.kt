@@ -3,7 +3,11 @@ package io.github.akrishna87.mymusic
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.graphics.Bitmap
+import android.media.AudioManager
+import android.media.audiofx.BassBoost
+import android.media.audiofx.Equalizer
 import android.net.Uri
 import android.os.Bundle
 import androidx.annotation.OptIn
@@ -26,6 +30,7 @@ import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -49,12 +54,29 @@ class PlaybackService : MediaSessionService() {
     companion object {
         /** Custom command: add a song to the queue. Args: a song bundle plus "next" (Boolean). */
         const val CMD_ENQUEUE = "io.github.akrishna87.mymusic.ENQUEUE"
+
+        /** The running player, for the home-screen widget's buttons; null when the service isn't running. */
+        @Volatile
+        var activePlayer: Player? = null
+            private set
+
+        /** Custom command: sleep timer. Arg "minutes": > 0 to stop after that long, -1 at the end of the song, 0 to cancel. */
+        const val CMD_SLEEP = "io.github.akrishna87.mymusic.SLEEP"
     }
 
     private var session: MediaSession? = null
     private lateinit var player: ExoPlayer
     private val scope = MainScope()
     private var errorStreak = 0
+
+    // Equaliser and bass boost, attached to this player's own audio stream.
+    private var equalizer: Equalizer? = null
+    private var bassBoost: BassBoost? = null
+    private val effectsPrefs by lazy { Effects.prefs(this) }
+    private val effectsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key != Effects.KEY_INFO && key != Effects.KEY_SLEEP_UNTIL && key != Effects.KEY_SLEEP_END_OF_SONG) applyEffects()
+    }
+    private var sleepJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -69,6 +91,14 @@ class PlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true) // pause when headphones are unplugged
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
+
+        // Give the player a fixed audio session so the equaliser can attach to it.
+        val audioSession = (getSystemService(Context.AUDIO_SERVICE) as AudioManager).generateAudioSessionId()
+        player.setAudioSessionId(audioSession)
+        setUpEffects(audioSession)
+        activePlayer = player
+        effectsPrefs.registerOnSharedPreferenceChangeListener(effectsListener)
+        clearSleep() // a timer can't outlive the service that was running it
 
         val openApp = PendingIntent.getActivity(
             this,
@@ -86,6 +116,12 @@ class PlaybackService : MediaSessionService() {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (isPlaying) errorStreak = 0
                 savePosition()
+                PlayerWidget.update(this@PlaybackService, player)
+            }
+
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                // "End of this song" sleep timer: the player has just paused at the end of the song.
+                if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) clearSleep()
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -94,6 +130,7 @@ class PlaybackService : MediaSessionService() {
                     shuffleFromCurrent()
                 }
                 savePosition()
+                PlayerWidget.update(this@PlaybackService, player)
             }
 
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
@@ -138,12 +175,119 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        activePlayer = null
         savePosition()
+        clearSleep()
+        effectsPrefs.unregisterOnSharedPreferenceChangeListener(effectsListener)
+        equalizer?.release()
+        bassBoost?.release()
         scope.cancel()
         session?.release()
         session = null
         player.release()
         super.onDestroy()
+    }
+
+    // ----- Equaliser -----
+
+    private fun setUpEffects(audioSession: Int) {
+        try {
+            val eq = Equalizer(0, audioSession)
+            equalizer = eq
+            val bands = eq.numberOfBands.toInt()
+            val range = eq.bandLevelRange
+            val presets = (0 until eq.numberOfPresets.toInt()).map { p ->
+                eq.usePreset(p.toShort())
+                eq.getPresetName(p.toShort()) to (0 until bands).map { eq.getBandLevel(it.toShort()).toInt() }
+            }
+            bassBoost = try {
+                BassBoost(0, audioSession).takeIf { it.strengthSupported }
+            } catch (e: Exception) {
+                null
+            }
+            Effects.writeInfo(
+                effectsPrefs,
+                Effects.EqInfo(
+                    available = true,
+                    bandsHz = (0 until bands).map { eq.getCenterFreq(it.toShort()) / 1000 }, // milliHertz → Hz
+                    minLevel = range[0].toInt(),
+                    maxLevel = range[1].toInt(),
+                    presets = presets,
+                    bassBoost = bassBoost != null,
+                ),
+            )
+        } catch (e: Exception) {
+            // Some phones (and emulators) have no equaliser effect.
+            equalizer = null
+            Effects.writeInfo(effectsPrefs, Effects.EqInfo(available = false))
+        }
+        applyEffects()
+    }
+
+    private fun applyEffects() {
+        val s = Effects.read(effectsPrefs)
+        equalizer?.let { eq ->
+            try {
+                val range = eq.bandLevelRange
+                if (s.preset in 0 until eq.numberOfPresets) {
+                    eq.usePreset(s.preset.toShort())
+                } else {
+                    s.levels.forEachIndexed { band, level ->
+                        if (band < eq.numberOfBands) eq.setBandLevel(band.toShort(), level.coerceIn(range[0].toInt(), range[1].toInt()).toShort())
+                    }
+                }
+                eq.setEnabled(s.enabled)
+            } catch (e: Exception) {
+                // the effect was taken over by another app; nothing to do
+            }
+        }
+        bassBoost?.let { b ->
+            try {
+                b.setStrength(s.bass.coerceIn(0, 1000).toShort())
+                b.setEnabled(s.enabled && s.bass > 0)
+            } catch (e: Exception) {
+                // ignore
+            }
+        }
+    }
+
+    // ----- Sleep timer -----
+
+    private fun setSleep(minutes: Int) {
+        sleepJob?.cancel()
+        player.pauseAtEndOfMediaItems = false
+        when {
+            minutes > 0 -> {
+                val until = System.currentTimeMillis() + minutes * 60_000L
+                effectsPrefs.edit().putLong(Effects.KEY_SLEEP_UNTIL, until).putBoolean(Effects.KEY_SLEEP_END_OF_SONG, false).apply()
+                sleepJob = scope.launch {
+                    delay(minutes * 60_000L - 10_000L)
+                    // Fade out over ten seconds rather than stopping abruptly.
+                    for (step in 20 downTo 0) {
+                        player.volume = step / 20f
+                        delay(500)
+                    }
+                    player.pause()
+                    player.volume = 1f
+                    clearSleep()
+                }
+            }
+            minutes == -1 -> {
+                player.pauseAtEndOfMediaItems = true
+                effectsPrefs.edit().putLong(Effects.KEY_SLEEP_UNTIL, 0).putBoolean(Effects.KEY_SLEEP_END_OF_SONG, true).apply()
+            }
+            else -> clearSleep()
+        }
+    }
+
+    private fun clearSleep() {
+        sleepJob?.cancel()
+        sleepJob = null
+        if (::player.isInitialized) {
+            player.pauseAtEndOfMediaItems = false
+            player.volume = 1f
+        }
+        effectsPrefs.edit().remove(Effects.KEY_SLEEP_UNTIL).remove(Effects.KEY_SLEEP_END_OF_SONG).apply()
     }
 
     // ----- Queue helpers -----
@@ -261,6 +405,7 @@ class PlaybackService : MediaSessionService() {
         ): MediaSession.ConnectionResult {
             val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
                 .add(SessionCommand(CMD_ENQUEUE, Bundle.EMPTY))
+                .add(SessionCommand(CMD_SLEEP, Bundle.EMPTY))
                 .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(commands)
@@ -275,6 +420,10 @@ class PlaybackService : MediaSessionService() {
         ): ListenableFuture<SessionResult> {
             if (customCommand.customAction == CMD_ENQUEUE) {
                 enqueue(songFromBundle(args).toMediaItem(), args.getBoolean("next"))
+                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+            }
+            if (customCommand.customAction == CMD_SLEEP) {
+                setSleep(args.getInt("minutes"))
                 return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
             }
             return super.onCustomCommand(session, controller, customCommand, args)

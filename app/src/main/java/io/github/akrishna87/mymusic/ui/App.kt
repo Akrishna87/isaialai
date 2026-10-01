@@ -19,6 +19,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +34,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +49,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.akrishna87.mymusic.MusicViewModel
 import io.github.akrishna87.mymusic.Section
+import kotlin.math.abs
 
 private val AUDIO_PERMISSION =
     if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
@@ -131,7 +135,7 @@ private fun PermissionScreen(denied: Boolean, onAsk: () -> Unit, onSettings: () 
 private fun Shell(vm: MusicViewModel) {
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
-    BackHandler(enabled = vm.showPlayer || vm.screens.isNotEmpty() || vm.section != Section.HOME) {
+    BackHandler(enabled = vm.showEqualizer || vm.showPlayer || vm.screens.isNotEmpty() || vm.section != Section.HOME) {
         if (!vm.back()) vm.selectSection(Section.HOME)
     }
 
@@ -169,6 +173,13 @@ private fun Shell(vm: MusicViewModel) {
             exit = slideOutVertically { it },
         ) {
             NowPlaying(vm)
+        }
+        AnimatedVisibility(
+            visible = vm.showEqualizer,
+            enter = slideInVertically { it },
+            exit = slideOutVertically { it },
+        ) {
+            EqualizerScreen(vm)
         }
         SnackbarHost(
             snackbar,
@@ -226,12 +237,31 @@ private fun MiniPlayer(vm: MusicViewModel) {
     val song = vm.currentSong
     val color = rememberArtColor(song)
     val fraction = if (vm.durationMs > 0) (vm.positionMs.toFloat() / vm.durationMs).coerceIn(0f, 1f) else 0f
+    // Swipe left for the next song, right for the previous one.
+    var swipeX by remember { mutableFloatStateOf(0f) }
     Box(Modifier.padding(horizontal = 8.dp).padding(bottom = 2.dp)) {
         Column(
             Modifier
                 .fillMaxWidth()
+                .graphicsLayer {
+                    translationX = swipeX * 0.5f
+                    alpha = 1f - (abs(swipeX) / 900f).coerceAtMost(0.5f)
+                }
                 .clip(RoundedCornerShape(10.dp))
                 .background(color.deep(0.5f))
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            val threshold = 70.dp.toPx()
+                            if (swipeX < -threshold) vm.next() else if (swipeX > threshold) vm.previousTrack()
+                            swipeX = 0f
+                        },
+                        onDragCancel = { swipeX = 0f },
+                    ) { change, dx ->
+                        change.consume()
+                        swipeX += dx
+                    }
+                }
                 .clickable { vm.showPlayer = true },
         ) {
             Row(
