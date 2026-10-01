@@ -21,7 +21,25 @@ old one and keeps your playlists.
 
 ## Features
 
-- **Songs / Albums / Artists / Folders / Playlists** tabs, plus search.
+- **Home · Search · Library** along the bottom, with a mini player above
+  them tinted in the current song's cover colour.
+- **Home** greets you by time of day and has quick tiles (Liked songs,
+  Shuffle all, recent albums), plus rows for **Jump back in** (recently
+  played), **Recently added**, **Your artists**, **On repeat** (most played)
+  and **Rediscover** (a different handful of albums each day).
+- **Search** matches songs, artists, albums and folders as you type. With an
+  empty search box it shows colourful browse tiles for your top artists,
+  folders and albums.
+- **Your Library** has filter chips for Songs, Albums, Artists, Folders and
+  Playlists.
+- **Album, artist and playlist pages** show a big cover over a background
+  coloured from the artwork, a round Play button, Shuffle, numbered album
+  tracks and the total length.
+- **Full player** with a background tinted by the cover, a cover that eases
+  back when paused, a slim seek bar, a ♥ like button and "Playing from …".
+- **Liked songs**: tap ♥ on the mini player or the full player, or use any
+  song's ⋮ menu. Liked songs is a playlist at the top of your Library and on
+  Home.
 - **Folders** works like a file manager. Start at the top (Music, Download,
   SD card…) and tap into subfolders. Every folder has **Play** and
   **Shuffle**, which include everything inside it.
@@ -43,9 +61,9 @@ old one and keeps your playlists.
 - **Picks up where you left off**: same queue, same song, same position, even
   after the phone restarts. Pressing play on headphones or in the car while the
   app is closed resumes it.
-- Cover art comes from the songs themselves. Dark and light themes follow your
-  phone's setting.
-- **Rescan** (↻ at the top) if songs you've just copied don't show up yet.
+- Cover art comes from the songs themselves. Songs without art get their own
+  colour gradient, based on the album. The app is always dark.
+- **Rescan** (↻ on Home) if songs you've just copied don't show up yet.
   Usually they appear on their own within a few seconds.
 
 Plays whatever Android can: MP3, M4A/AAC, FLAC, Ogg/Opus, WAV and more.
@@ -67,8 +85,11 @@ Requires Android 8.0 or newer.
 | `AddedFolders.kt` | Folders added with the folder picker: reading them directly, tag cache |
 | `PlaybackService.kt` | The player, media notification, queue/shuffle handling, resume |
 | `MusicViewModel.kt` | Connects the screens to the player and library |
-| `ui/App.kt` | Permission screen, tabs, detail pages, mini player |
+| `ui/App.kt` | Permission screen, bottom tabs, mini player, screen switching |
+| `ui/HomeScreen.kt`, `ui/SearchScreen.kt`, `ui/LibraryScreen.kt` | The three tabs (Library includes the folder tree and "Add a folder") |
+| `ui/DetailScreen.kt` | Album, artist, playlist and folder pages |
 | `ui/NowPlaying.kt` | Full-screen player and Up next |
+| `ui/ArtColors.kt` | Picks each cover's colour (androidx.palette) for the tinted backgrounds |
 
 ## Building
 
