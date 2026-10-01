@@ -360,7 +360,7 @@ grep -q "\[00:" "$OUT/lrc-lyrics.xml" && fail "the lyrics show raw timestamps"
 tap lrc-lyrics "Twenty seconds in"
 sleep 2
 session
-POS=$(grep -o "position=[0-9]*" "$OUT/session.txt" | head -1 | cut -d= -f2)
+POS=$(grep -o "position=[0-9]*" "$OUT/session.txt" | head -1 | cut -d= -f2 || true)
 echo "position after tapping the 0:20 line: $POS ms"
 [ "${POS:-0}" -ge 19000 ] || fail "tapping a lyrics line didn't jump to it"
 echo "PASS: timed lyrics from an .lrc file, and tapping a line jumps there"
@@ -621,7 +621,8 @@ dump xfade-player
 read -r X1 Y1 X2 Y2 < <(python3 "$HERE/find_text.py" "$OUT/xfade-player.xml" "Seek bar" bounds) || fail "no seek bar on the full player"
 adb shell input tap $((X1 + (X2 - X1) * 92 / 100)) $(((Y1 + Y2) / 2)) # about 5 s before the end
 sleep 2
-UID_APP=$(adb shell dumpsys package "$PKG" | grep -m1 -o 'userId=[0-9]*' | cut -d= -f2)
+# (|| true: grep -m1 stops reading early, which pipefail would otherwise count as a failure)
+UID_APP=$(adb shell dumpsys package "$PKG" | grep -m1 -o 'userId=[0-9]*' | cut -d= -f2 || true)
 STARTED=$(adb shell dumpsys audio | grep "AudioPlaybackConfiguration" | grep "u/pid:$UID_APP/" | grep -c "state:started" || true)
 echo "Isaialai audio players running during the crossfade: $STARTED"
 shot 24-crossfading
@@ -629,7 +630,7 @@ SEEN=0; MAXPOS=0
 for _ in $(seq 1 40); do
   session
   if [ "$(grep -o "description=[^,]*" "$OUT/session.txt" | head -1 | sed 's/description=//')" != "Loud Song" ]; then
-    P=$(grep -o "position=[0-9]*" "$OUT/session.txt" | head -1 | cut -d= -f2)
+    P=$(grep -o "position=[0-9]*" "$OUT/session.txt" | head -1 | cut -d= -f2 || true)
     [ "${P:-0}" -gt "$MAXPOS" ] && MAXPOS=$P
     SEEN=$((SEEN + 1))
     [ "$SEEN" -ge 6 ] && break
