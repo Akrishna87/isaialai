@@ -253,7 +253,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         positionMs = c.currentPosition.coerceAtLeast(0)
 
         val tl = c.currentTimeline
-        val next = ArrayList<Pair<Int, Long>>()
+        val next = ArrayList<Pair<Int, String>>()
         if (!tl.isEmpty && c.currentMediaItemIndex != C.INDEX_UNSET) {
             var i = c.currentMediaItemIndex
             while (next.size < 300) {
