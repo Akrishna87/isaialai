@@ -62,6 +62,8 @@ let *any* app:
   Android trusts with media control (the phone's own media controls, and apps
   you've allowed to read notifications) can also change the queue, so
   "resume" on the lock screen still works.
+- Only Isaialai and Android Auto (or a car with Android built in) can list
+  your music; any other app asking to browse is refused.
 - Whatever is queued, by anyone, must be a song in the phone's music library
   or inside a folder you added. Anything else is dropped. Cover art must be
   one of those songs or the library's album art.

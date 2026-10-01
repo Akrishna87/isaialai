@@ -103,6 +103,14 @@ old one and keeps your playlists.
 - **Swipe gestures**:
   - On the mini player: swipe left for the next song, right for the previous one.
   - On the full player: swipe the cover to change song, and swipe down to close.
+- **Android Auto**: Isaialai shows up in Android Auto (and cars with Android
+  built in). Browse Recently played, Liked songs, Playlists, Albums & movies,
+  Artists, Music directors or All songs on the car's screen; picking a song
+  plays the rest of that list after it. Voice requests ("play Ilaiyaraaja on
+  Isaialai") play the songs that match. Android Auto only lists apps from
+  the Play Store unless you turn on *Unknown sources* in Android Auto's
+  developer settings (open Android Auto settings, tap *Version* ten times,
+  then ⋮ → Developer settings → Unknown sources).
 - **Home-screen widget**: long-press your home screen → Widgets → Isaialai.
   It shows the cover, title and artist with ⏮ ⏯ ⏭, works when the app is
   closed, and opens the app when you tap it.

@@ -31,17 +31,26 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.akrishna87.mymusic.MusicViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 
-/** Whether the phone is locked right now (checked twice a second while the app is on screen). */
+/**
+ * Whether the phone is locked right now: checked the moment the app comes on screen (so waking
+ * the phone never shows the library first), then twice a second while it stays there.
+ */
 @Composable
 fun rememberPhoneLocked(): Boolean {
     val context = LocalContext.current
     val keyguard = remember { context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager }
-    val locked by produceState(keyguard.isKeyguardLocked) {
-        while (true) {
-            value = keyguard.isKeyguardLocked
-            delay(500)
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val locked by produceState(keyguard.isKeyguardLocked, lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                value = keyguard.isKeyguardLocked
+                delay(500)
+            }
         }
     }
     return locked

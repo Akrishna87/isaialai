@@ -27,9 +27,13 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
 import androidx.media3.session.CacheBitmapLoader
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
+import androidx.media3.session.MediaLibraryService.LibraryParams
+import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
+import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
@@ -59,7 +63,7 @@ import kotlin.random.Random
  * the app is in the background.
  */
 @OptIn(UnstableApi::class)
-class PlaybackService : MediaSessionService() {
+class PlaybackService : MediaLibraryService() {
 
     companion object {
         /** Custom command: add a song to the queue. Args: a song bundle plus "next" (Boolean). */
@@ -77,7 +81,10 @@ class PlaybackService : MediaSessionService() {
         const val CMD_MOVE_UPCOMING = "io.github.akrishna87.mymusic.MOVE_UPCOMING"
     }
 
-    private var session: MediaSession? = null
+    private var session: MediaLibrarySession? = null
+    // Android Auto's view of the library, read off the main thread.
+    private val carLibrary by lazy { CarLibrary(this) }
+    private val libraryExecutor = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor())
     private lateinit var player: ExoPlayer
     private val scope = MainScope()
     private var errorStreak = 0
@@ -151,10 +158,9 @@ class PlaybackService : MediaSessionService() {
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        session = MediaSession.Builder(this, player)
+        session = MediaLibrarySession.Builder(this, player, SessionCallback())
             .setSessionActivity(openApp)
             .setBitmapLoader(CacheBitmapLoader(ArtBitmapLoader(this)))
-            .setCallback(SessionCallback())
             .build()
 
         player.addListener(object : Player.Listener {
@@ -238,7 +244,7 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         // Swiping the app away keeps music going if it's playing; otherwise shut down.
@@ -256,6 +262,7 @@ class PlaybackService : MediaSessionService() {
         bassBoost?.release()
         loudnessEnhancer?.release()
         fadePlayer?.release()
+        libraryExecutor.shutdown()
         scope.cancel()
         session?.release()
         session = null
@@ -687,14 +694,14 @@ class PlaybackService : MediaSessionService() {
 
     // ----- Session callbacks -----
 
-    private inner class SessionCallback : MediaSession.Callback {
+    private inner class SessionCallback : MediaLibrarySession.Callback {
 
         override fun onConnect(
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
         ): MediaSession.ConnectionResult {
             if (isOwnApp(controller)) {
-                val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
+                val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
                     .add(SessionCommand(CMD_ENQUEUE, Bundle.EMPTY))
                     .add(SessionCommand(CMD_SLEEP, Bundle.EMPTY))
                     .add(SessionCommand(CMD_MOVE_UPCOMING, Bundle.EMPTY))
@@ -703,7 +710,15 @@ class PlaybackService : MediaSessionService() {
                     .setAvailableSessionCommands(commands)
                     .build()
             }
-            // Headphones, car, watch and lock-screen controls: play, pause, skip and seek.
+            // Android Auto (on the phone, or a car with Android built in) can browse the library and
+            // pick songs.
+            if (isCar(session, controller)) {
+                return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                    .setAvailableSessionCommands(MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS)
+                    .setAvailablePlayerCommands(MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS)
+                    .build()
+            }
+            // Headphones, watch and lock-screen controls: play, pause, skip and seek.
             // The phone's own media controls (trusted system apps) may also resume the last queue;
             // any other app can't change what's queued or use the sleep timer / add-to-queue.
             val player = if (controller.isTrusted) {
@@ -721,6 +736,55 @@ class PlaybackService : MediaSessionService() {
 
         /** The app's own screens and its notification; the uid comes from Android, so it can't be faked. */
         private fun isOwnApp(controller: MediaSession.ControllerInfo) = controller.uid == Process.myUid()
+
+        private fun isCar(session: MediaSession, controller: MediaSession.ControllerInfo) =
+            session.isAutoCompanionController(controller) || session.isAutomotiveController(controller)
+
+        /** Only Isaialai itself and the car may list your music. */
+        private fun mayBrowse(session: MediaSession, controller: MediaSession.ControllerInfo) =
+            isOwnApp(controller) || isCar(session, controller)
+
+        override fun onGetLibraryRoot(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<MediaItem>> =
+            if (!mayBrowse(session, browser)) Futures.immediateFuture(LibraryResult.ofError(LibraryResult.RESULT_ERROR_PERMISSION_DENIED))
+            else Futures.immediateFuture(LibraryResult.ofItem(carLibrary.root, params))
+
+        override fun onGetChildren(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            parentId: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            if (!mayBrowse(session, browser)) {
+                return Futures.immediateFuture(LibraryResult.ofError(LibraryResult.RESULT_ERROR_PERMISSION_DENIED))
+            }
+            return libraryExecutor.submit(Callable<LibraryResult<ImmutableList<MediaItem>>> {
+                val all = carLibrary.children(parentId)
+                    ?: return@Callable LibraryResult.ofError<ImmutableList<MediaItem>>(LibraryResult.RESULT_ERROR_BAD_VALUE)
+                val from = (page.coerceAtLeast(0).toLong() * pageSize).coerceAtMost(all.size.toLong()).toInt()
+                val to = (from + pageSize.coerceAtLeast(1)).coerceAtMost(all.size)
+                LibraryResult.ofItemList(ImmutableList.copyOf(all.subList(from, to)), params)
+            })
+        }
+
+        override fun onGetItem(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            mediaId: String,
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            if (!mayBrowse(session, browser)) {
+                return Futures.immediateFuture(LibraryResult.ofError(LibraryResult.RESULT_ERROR_PERMISSION_DENIED))
+            }
+            return libraryExecutor.submit(Callable<LibraryResult<MediaItem>> {
+                carLibrary.item(mediaId)?.let { LibraryResult.ofItem(it, null) }
+                    ?: LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE)
+            })
+        }
 
         override fun onCustomCommand(
             session: MediaSession,
@@ -762,6 +826,19 @@ class PlaybackService : MediaSessionService() {
             startIndex: Int,
             startPositionMs: Long,
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            if (isCar(mediaSession, controller)) {
+                // A song picked in the car plays with the rest of its list; a spoken request plays what matches.
+                val query = mediaItems.singleOrNull()?.requestMetadata?.searchQuery
+                val single = mediaItems.singleOrNull()?.mediaId?.takeIf { it.isNotEmpty() }
+                if (query != null || single != null) {
+                    return libraryExecutor.submit(Callable<MediaSession.MediaItemsWithStartPosition> {
+                        val (list, at) = if (query != null) carLibrary.search(query) to 0 else carLibrary.listContaining(single!!) ?: (emptyList<Song>() to 0)
+                        val kept = keepTrusted(list.map { it.toMediaItem() }, at)
+                        if (kept.items.isEmpty()) throw SecurityException("Nothing to play")
+                        MediaSession.MediaItemsWithStartPosition(kept.items, kept.startIndex, 0)
+                    })
+                }
+            }
             val kept = keepTrusted(mediaItems, startIndex)
             if (kept.items.isEmpty() && mediaItems.isNotEmpty()) {
                 return Futures.immediateFailedFuture(SecurityException("Not songs on this phone"))

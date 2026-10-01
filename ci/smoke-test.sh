@@ -720,6 +720,13 @@ grep -q 'text="Library"' "$OUT/unlocked.xml" || fail "unlocking didn't go back t
 adb shell locksettings clear --old 1111 > /dev/null
 echo "PASS: the player shows over the lock screen, and only the player"
 
+echo "--- Android Auto"
+adb shell cmd package query-services -a androidx.media3.session.MediaLibraryService | grep -q "$PKG/.PlaybackService" \
+  || fail "the player isn't offered as a media library, so Android Auto can't browse it"
+adb shell cmd package query-services -a android.media.browse.MediaBrowserService | grep -q "$PKG/.PlaybackService" \
+  || fail "the player isn't offered as a media browser (what Android Auto connects to)"
+echo "PASS: Android Auto can find Isaialai's music library (browsing itself needs a car or the Auto head unit)"
+
 echo "--- Home-screen widget"
 adb shell dumpsys appwidget | grep -q "mymusic.PlayerWidget" || fail "the home-screen widget isn't registered with the launcher"
 echo "PASS: home-screen widget is available"
