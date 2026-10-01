@@ -1,8 +1,8 @@
 """Print the centre "x y" of the on-screen element whose text (or description) matches.
 
 Matching ignores case; an exact match wins over a partial one.
-Usage: find_text.py <uiautomator dump> <text> [first|last|bounds]
-("bounds" prints "x1 y1 x2 y2" of the first match instead.)
+Usage: find_text.py <uiautomator dump> <text> [first|last|bounds|exact]
+("bounds" prints "x1 y1 x2 y2" of the first match instead; "exact" ignores partial matches.)
 """
 import re
 import sys
@@ -17,7 +17,9 @@ def labels(n):
     return [(n.get("text") or "").lower(), (n.get("content-desc") or "").lower()]
 
 
-matches = [n for n in nodes if needle in labels(n)] or [n for n in nodes if any(needle in l for l in labels(n) if l)]
+matches = [n for n in nodes if needle in labels(n)]
+if not matches and which != "exact":
+    matches = [n for n in nodes if any(needle in l for l in labels(n) if l)]
 if not matches:
     sys.exit(f"'{sys.argv[2]}' is not on screen")
 node = matches[-1] if which == "last" else matches[0]

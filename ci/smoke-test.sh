@@ -52,10 +52,11 @@ scroll_down() { # swipe up on the middle of the screen
 }
 playing() { session; grep -Eq "\{state=(PLAYING|3)" "$OUT/session.txt"; }
 chip() { # chip <name>: tap a Library tab chip, scrolling the chip row sideways if it's out of view
-  local i y
+  local i y xy
   for i in 1 2 3 4 5 6; do
     dump chips
-    if python3 "$HERE/find_text.py" "$OUT/chips.xml" "$1" > /dev/null 2>&1; then tap chips "$1"; return 0; fi
+    # Exact matches only: "Songs" mustn't match "Liked songs" in a list below the tabs.
+    if xy=$(python3 "$HERE/find_text.py" "$OUT/chips.xml" "$1" exact 2> /dev/null); then adb shell input tap $xy; return 0; fi
     y=$(python3 "$HERE/find_text.py" "$OUT/chips.xml" "Your Library" | cut -d' ' -f2) || fail "not on the Library screen"
     y=$((y + 150))
     if [ "$i" -le 2 ]; then adb shell input swipe 900 $y 200 $y 300; else adb shell input swipe 200 $y 900 $y 300; fi
