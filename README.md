@@ -21,9 +21,19 @@ old one and keeps your playlists.
 
 ## Features
 
-- **Songs / Albums / Artists / Folders / Playlists** tabs, plus search. The
-  **Folders** tab mirrors where the files are on your phone (Music, Download,
-  WhatsApp Audio and so on).
+- **Songs / Albums / Artists / Folders / Playlists** tabs, plus search.
+- **Folders** works like a file manager. Start at the top (Music, Download,
+  SD card…) and tap into subfolders. Every folder has **Play** and
+  **Shuffle**, which include everything inside it.
+- **Missing songs? Add a folder.** Some apps (Telegram, many downloaders)
+  put a hidden `.nomedia` file in their folders, which makes Android's music
+  library skip them. Tap **Add a folder** at the bottom of the Folders tab
+  and pick the folder. My Music then reads it directly, and remembers it.
+  Remove it with the ✕ next to its name.
+- Every song on the phone is listed, including ones Android marks as "not
+  music" (for example in Podcasts or Audiobooks folders). Ringtones,
+  alarms, notification sounds, call recordings and clips under 10 seconds
+  are left out.
 - **Background playback** with a media notification, lock-screen controls,
   and Bluetooth/headphone/car buttons. It pauses when headphones are
   unplugged or a call comes in.
@@ -53,7 +63,8 @@ Requires Android 8.0 or newer.
 
 | File | What's in it |
 | --- | --- |
-| `Library.kt` | Song model, the MediaStore scan, album/artist/folder grouping |
+| `Library.kt` | Song model, the MediaStore scan, album/artist grouping, the folder tree |
+| `AddedFolders.kt` | Folders added with the folder picker: reading them directly, tag cache |
 | `PlaybackService.kt` | The player, media notification, queue/shuffle handling, resume |
 | `MusicViewModel.kt` | Connects the screens to the player and library |
 | `ui/App.kt` | Permission screen, tabs, detail pages, mini player |
@@ -65,10 +76,12 @@ GitHub Actions builds it (`.github/workflows/music-player-apk.yml`) on every
 push that touches this folder:
 
 1. **build**: `./gradlew assembleRelease` (needs JDK 17 and the Android SDK).
-2. **smoke-test**: installs the APK on an Android 14 emulator, copies three
-   test songs onto it, and checks that the app lists them, plays them, opens
-   the full player, responds to the media "next" button and keeps playing in
-   the background. Screenshots are saved with the build.
+2. **smoke-test**: installs the APK on an Android 14 emulator, copies test
+   songs onto it, and checks that the app lists them (including one Android
+   marks as "not music"), plays them, opens the full player, responds to the
+   media "next" button and keeps playing in the background. It also browses
+   into subfolders, adds a hidden `.nomedia` folder through Android's folder
+   picker, and plays a song from it. Screenshots are saved with the build.
 3. **publish**: replaces the `music-player-latest` release with the new APK
    and the screenshots.
 

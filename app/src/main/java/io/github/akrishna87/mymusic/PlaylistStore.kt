@@ -6,7 +6,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-data class Playlist(val id: String, val name: String, val songIds: List<Long>)
+data class Playlist(val id: String, val name: String, val songIds: List<String>)
 
 /** Playlists are small, so they live as JSON in SharedPreferences. */
 class PlaylistStore(context: Context) {
@@ -19,7 +19,8 @@ class PlaylistStore(context: Context) {
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
                 val ids = o.getJSONArray("songs")
-                items += Playlist(o.getString("id"), o.getString("name"), List(ids.length()) { ids.getLong(it) })
+                // Older versions stored library ids as numbers; getString reads both.
+                items += Playlist(o.getString("id"), o.getString("name"), List(ids.length()) { ids.getString(it) })
             }
         } catch (e: Exception) {
             // corrupt data: start empty rather than crash
@@ -36,7 +37,7 @@ class PlaylistStore(context: Context) {
 
     fun get(id: String): Playlist? = items.firstOrNull { it.id == id }
 
-    fun create(name: String, songIds: List<Long> = emptyList()): Playlist {
+    fun create(name: String, songIds: List<String> = emptyList()): Playlist {
         val p = Playlist(UUID.randomUUID().toString(), name, songIds.distinct())
         items += p
         save()
@@ -51,14 +52,14 @@ class PlaylistStore(context: Context) {
     }
 
     /** Returns how many of the songs were new to the playlist. */
-    fun add(id: String, songIds: List<Long>): Int {
+    fun add(id: String, songIds: List<String>): Int {
         val p = get(id) ?: return 0
         val fresh = songIds.filter { it !in p.songIds }.distinct()
         if (fresh.isNotEmpty()) update(id) { it.copy(songIds = it.songIds + fresh) }
         return fresh.size
     }
 
-    fun remove(id: String, songId: Long) = update(id) { it.copy(songIds = it.songIds - songId) }
+    fun remove(id: String, songId: String) = update(id) { it.copy(songIds = it.songIds - songId) }
 
     private fun update(id: String, change: (Playlist) -> Playlist) {
         val i = items.indexOfFirst { it.id == id }

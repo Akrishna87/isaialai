@@ -3,8 +3,10 @@ package io.github.akrishna87.mymusic
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
+import android.provider.MediaStore
 import android.util.LruCache
 import android.util.Size
 import kotlinx.coroutines.Dispatchers
@@ -38,22 +40,42 @@ object ArtLoader {
         }
     }
 
-    /** Android 10+ can pull art out of each song file; older versions only have per-album art. */
-    fun artworkUriFor(song: Song): Uri = if (Build.VERSION.SDK_INT >= 29) song.uri else song.albumArtUri
+    /**
+     * Android 10+ can pull art out of each library song; older versions only have per-album art.
+     * Songs from added folders are read directly.
+     */
+    fun artworkUriFor(song: Song): Uri =
+        if (song.id.toLongOrNull() != null && Build.VERSION.SDK_INT < 29) song.albumArtUri else song.uri
 
     fun decode(context: Context, uri: Uri, size: Int): Bitmap? = try {
-        if (Build.VERSION.SDK_INT >= 29 && uri.toString().startsWith(Song.ALBUM_ART_URI.toString()).not()) {
-            context.contentResolver.loadThumbnail(uri, Size(size, size), null)
-        } else {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                BitmapFactory.decodeStream(input)?.let { scaleDown(it, size) }
-            }
+        when {
+            uri.authority == MediaStore.AUTHORITY && uri.path.orEmpty().contains("/albumart") ->
+                context.contentResolver.openInputStream(uri)?.use { decodeBytes(it.readBytes(), size) }
+            uri.authority == MediaStore.AUTHORITY && Build.VERSION.SDK_INT >= 29 ->
+                context.contentResolver.loadThumbnail(uri, Size(size, size), null)
+            else -> embeddedPicture(context, uri)?.let { decodeBytes(it, size) }
         }
     } catch (e: Exception) {
         null // no embedded art, or the file has gone
     }
 
-    private fun scaleDown(bmp: Bitmap, size: Int): Bitmap {
+    private fun embeddedPicture(context: Context, uri: Uri): ByteArray? {
+        val r = MediaMetadataRetriever()
+        return try {
+            r.setDataSource(context, uri)
+            r.embeddedPicture
+        } finally {
+            try { r.release() } catch (e: Exception) { /* ignore */ }
+        }
+    }
+
+    private fun decodeBytes(bytes: ByteArray, size: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= size && bounds.outHeight / (sample * 2) >= size) sample *= 2
+        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+            ?: return null
         val longest = maxOf(bmp.width, bmp.height)
         if (longest <= size) return bmp
         val scale = size.toFloat() / longest

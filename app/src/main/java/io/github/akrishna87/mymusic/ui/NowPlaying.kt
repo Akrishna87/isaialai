@@ -166,7 +166,7 @@ private fun NowPlayingMenu(vm: MusicViewModel, song: Song) {
         IconButton(onClick = { open = true }) { Icon(Icons.Rounded.MoreVert, "More options") }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             DropdownMenuItem(text = { Text("Add to playlist…") }, onClick = { open = false; vm.playlistPickerFor = song })
-            DropdownMenuItem(text = { Text("Go to album") }, onClick = { open = false; vm.open(Screen.Album(song.albumId)) })
+            DropdownMenuItem(text = { Text("Go to album") }, onClick = { open = false; vm.open(Screen.Album(song.albumKey)) })
             DropdownMenuItem(text = { Text("Go to artist") }, onClick = { open = false; vm.open(Screen.Artist(song.artist)) })
             DropdownMenuItem(text = { Text("Go to folder") }, onClick = { open = false; vm.open(Screen.Folder(song.folder)) })
         }
