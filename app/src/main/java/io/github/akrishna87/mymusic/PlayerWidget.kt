@@ -73,7 +73,7 @@ class PlayerWidget : AppWidgetProvider() {
             val ids = manager.getAppWidgetIds(ComponentName(context, PlayerWidget::class.java))
             if (ids.isEmpty()) return
             val views = RemoteViews(context.packageName, R.layout.widget_player)
-            views.setTextViewText(R.id.widget_title, s.title.ifEmpty { "My Music" })
+            views.setTextViewText(R.id.widget_title, s.title.ifEmpty { context.getString(R.string.app_name) })
             views.setTextViewText(R.id.widget_artist, s.artist.ifEmpty { "Tap to open" })
             if (art != null) views.setImageViewBitmap(R.id.widget_art, art)
             else views.setImageViewResource(R.id.widget_art, R.drawable.widget_art_placeholder)

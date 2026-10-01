@@ -85,7 +85,7 @@ fun EqualizerScreen(vm: MusicViewModel) {
                 info == null -> Note("Starting the player…")
                 !info.available -> Note(
                     "This phone doesn't let apps use its built-in equaliser. " +
-                        "If it has its own sound settings (often under Settings → Sound → Sound quality and effects), those still apply to My Music.",
+                        "If it has its own sound settings (often under Settings → Sound → Sound quality and effects), those still apply to Isaialai.",
                 )
                 else -> EqControls(vm, info, settings)
             }

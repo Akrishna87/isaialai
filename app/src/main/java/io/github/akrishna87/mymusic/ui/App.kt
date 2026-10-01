@@ -17,6 +17,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -32,12 +33,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,6 +52,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.akrishna87.mymusic.MusicViewModel
+import io.github.akrishna87.mymusic.R
 import io.github.akrishna87.mymusic.Section
 import kotlin.math.abs
 
@@ -97,12 +102,13 @@ private fun PermissionScreen(denied: Boolean, onAsk: () -> Unit, onSettings: () 
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            IconTile(Icons.Rounded.LibraryMusic, null, Modifier.size(112.dp), RoundedCornerShape(28.dp), iconSize = 56.dp)
-            Spacer(Modifier.height(32.dp))
-            Text("Your music,\nright here.", style = MaterialTheme.typography.headlineLarge, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(16.dp))
+            AppArt(Modifier.size(132.dp))
+            Spacer(Modifier.height(28.dp))
+            Text("Isaialai", style = MaterialTheme.typography.displaySmall, textAlign = TextAlign.Center)
+            Text("இசையலை · music wave", color = Palette.SubText, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(20.dp))
             Text(
-                "My Music plays the songs already saved on this phone, straight from storage. " +
+                "Isaialai plays the songs already saved on this phone, straight from storage. " +
                     "Nothing is copied or uploaded.",
                 textAlign = TextAlign.Center,
                 color = Palette.SubText,
@@ -127,6 +133,15 @@ private fun PermissionScreen(denied: Boolean, onAsk: () -> Unit, onSettings: () 
                 )
             }
         }
+    }
+}
+
+/** The launcher icon's art (the vibing listener), for the welcome screen. */
+@Composable
+fun AppArt(modifier: Modifier = Modifier) {
+    Box(modifier.clip(RoundedCornerShape(32.dp))) {
+        Image(painterResource(R.drawable.ic_launcher_background), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        Image(painterResource(R.drawable.ic_launcher_foreground), contentDescription = null, modifier = Modifier.fillMaxSize().scale(1.35f), contentScale = ContentScale.Crop)
     }
 }
 

@@ -32,11 +32,11 @@ jobs:
           VERSION_CODE: ${{ github.run_number }}
         run: ./gradlew --no-daemon --stacktrace assembleRelease
       - name: Name the APK
-        run: cp app/build/outputs/apk/release/app-release.apk MyMusic.apk
+        run: cp app/build/outputs/apk/release/app-release.apk Isaialai.apk
       - uses: actions/upload-artifact@v4
         with:
           name: MyMusic-apk
-          path: music-player-android/MyMusic.apk
+          path: music-player-android/Isaialai.apk
 
   smoke-test:
     needs: build
@@ -82,7 +82,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim -camera-back none
-          script: bash music-player-android/ci/smoke-test.sh apk/MyMusic.apk songs smoke-out
+          script: bash music-player-android/ci/smoke-test.sh apk/Isaialai.apk songs smoke-out
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -109,8 +109,10 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           gh release delete music-player-latest --cleanup-tag --yes || true
-          gh release create music-player-latest out/MyMusic.apk out/screens/*.png \
+          # Keep the old file name too, so links shared before the rename still work.
+          cp out/Isaialai.apk out/MyMusic.apk
+          gh release create music-player-latest out/Isaialai.apk out/MyMusic.apk out/screens/*.png \
             --target "$GITHUB_SHA" \
             --prerelease \
-            --title "My Music for Android (build ${{ github.run_number }})" \
-            --notes "Download **MyMusic.apk** on your Android phone, open it, and allow installing from your browser when asked. Each new build installs as an update over the last one. The PNG files are screenshots from the automatic emulator test of this build."
+            --title "Isaialai for Android (build ${{ github.run_number }})" \
+            --notes "Download **Isaialai.apk** on your Android phone, open it, and allow installing from your browser when asked. Each new build installs as an update over the last one. The PNG files are screenshots from the automatic emulator test of this build. MyMusic.apk is the same file under the old name."

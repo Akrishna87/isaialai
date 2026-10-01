@@ -296,7 +296,7 @@ private fun AddFolderCard(vm: MusicViewModel) {
         Text("Missing songs?", style = MaterialTheme.typography.titleMedium)
         Text(
             "Some folders, like Telegram or app download folders, are hidden from Android's music library. " +
-                "Add the folder here and My Music will read it directly.",
+                "Add the folder here and Isaialai will read it directly.",
             style = MaterialTheme.typography.bodyMedium,
             color = Palette.SubText,
         )

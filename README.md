@@ -1,4 +1,8 @@
-# 🎵 My Music for Android
+# 🎧 Isaialai (இசையலை) for Android
+
+*Isaialai* means "music wave" in Tamil: **isai** (music) + **alai** (wave).
+The app was first called "My Music". Its internal ID is unchanged, so new
+builds install over the old one and keep your playlists and settings.
 
 A native Android music player that plays the songs already saved on your
 phone **straight from storage**. There's nothing to pick or import and no
@@ -9,14 +13,15 @@ themselves.
 
 1. On your Android phone, open the
    [latest build](https://github.com/Akrishna87/Akrishna87/releases/tag/music-player-latest)
-   and tap **MyMusic.apk** to download it.
+   and tap **Isaialai.apk** to download it. The same file is also there as
+   `MyMusic.apk`, so older links keep working.
 2. Open the downloaded file. Android will ask you to allow installing apps
    from your browser (or Files app). Allow it, then tap **Install**.
    Google Play Protect may warn that it doesn't recognise the app, because
    it isn't from the Play Store. Tap **More details → Install anyway**.
-3. Open **My Music** and tap **Allow access to music**.
+3. Open **Isaialai** and tap **Allow access to music**.
 
-To update, install a newer `MyMusic.apk` the same way. It installs over the
+To update, install a newer `Isaialai.apk` the same way. It installs over the
 old one and keeps your playlists.
 
 ## Features
@@ -49,7 +54,7 @@ old one and keeps your playlists.
 - **Swipe gestures**:
   - On the mini player: swipe left for the next song, right for the previous one.
   - On the full player: swipe the cover to change song, and swipe down to close.
-- **Home-screen widget**: long-press your home screen → Widgets → My Music.
+- **Home-screen widget**: long-press your home screen → Widgets → Isaialai.
   It shows the cover, title and artist with ⏮ ⏯ ⏭, works when the app is
   closed, and opens the app when you tap it.
 - **Liked songs**: tap ♥ on the mini player or the full player, or use any
@@ -61,7 +66,7 @@ old one and keeps your playlists.
 - **Missing songs? Add a folder.** Some apps (Telegram, many downloaders)
   put a hidden `.nomedia` file in their folders, which makes Android's music
   library skip them. Tap **Add a folder** at the bottom of the Folders tab
-  and pick the folder. My Music then reads it directly, and remembers it.
+  and pick the folder. Isaialai then reads it directly, and remembers it.
   Remove it with the ✕ next to its name.
 - Every song on the phone is listed, including ones Android marks as "not
   music" (for example in Podcasts or Audiobooks folders). Ringtones,
@@ -107,6 +112,7 @@ Requires Android 8.0 or newer.
 | `ui/ArtColors.kt` | Picks each cover's colour (androidx.palette) for the tinted backgrounds |
 | `ui/EqualizerScreen.kt`, `Effects.kt` | Equaliser screen and its settings; `PlaybackService` owns the effects and the sleep timer |
 | `PlayerWidget.kt` | Home-screen widget and its buttons |
+| `ci/icon/gen.py` | Generates the launcher icon (the vibing listener, plus the themed one-colour version) as vector drawables |
 
 ## Building
 
