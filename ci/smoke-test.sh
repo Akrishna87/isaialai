@@ -22,7 +22,19 @@ fail() {
   adb logcat -d > "$OUT/logcat.txt" || true
   exit 1
 }
-dump() { adb shell uiautomator dump /sdcard/ui.xml > /dev/null && adb pull /sdcard/ui.xml "$OUT/$1.xml" > /dev/null; }
+dump() {
+  local i
+  for i in 1 2 3; do
+    adb shell uiautomator dump /sdcard/ui.xml > /dev/null && adb pull /sdcard/ui.xml "$OUT/$1.xml" > /dev/null
+    # The emulator's own apps (e.g. the launcher) sometimes freeze while it warms up; wave the
+    # "isn't responding" popup away so it doesn't cover My Music. Crashes of My Music itself are
+    # still caught from logcat at the end.
+    grep -q "isn&apos;t responding\|isn't responding" "$OUT/$1.xml" || return 0
+    echo "(dismissing a system 'isn't responding' popup)"
+    python3 "$HERE/find_text.py" "$OUT/$1.xml" "Wait" > /dev/null 2>&1 && adb shell input tap $(python3 "$HERE/find_text.py" "$OUT/$1.xml" "Wait")
+    sleep 3
+  done
+}
 shot() { adb exec-out screencap -p > "$OUT/$1.png"; }
 tap() { # tap <dump name> <text> [first|last]
   local xy
@@ -61,13 +73,24 @@ HIDDEN_IN_LIBRARY=no
 adb shell content query --uri content://media/external/audio/media --projection title | grep -q "Smoke Hidden Song" && HIDDEN_IN_LIBRARY=yes
 echo "Android's media library has the .nomedia song: $HIDDEN_IN_LIBRARY"
 
-echo "--- Launching the app"
+echo "--- Launching the app (opens on Home)"
+# Don't let other apps' "isn't responding" popups cover the screen during the test.
+adb shell settings put global hide_error_dialogs 1 || true
 adb shell pm grant "$PKG" android.permission.READ_MEDIA_AUDIO
 adb logcat -c
 adb shell am start -W -n "$PKG/.MainActivity"
 sleep 6
+dump home
+shot 1-home
+grep -q "Shuffle all" "$OUT/home.xml" || fail "Home doesn't show its quick tiles"
+grep -qi 'text="Good ' "$OUT/home.xml" || fail "Home doesn't show the greeting"
+echo "PASS: Home screen"
+
+echo "--- Library: all songs"
+tap home "Library"
+sleep 2
 dump library
-shot 1-library
+shot 2-library
 grep -q "Smoke Song 1" "$OUT/library.xml" || fail "the song list doesn't show the test songs"
 echo "PASS: library lists the songs on the phone"
 grep -q "Smoke Podcast Song" "$OUT/library.xml" || fail "a song Android marks as 'not music' (Podcasts folder) is missing"
@@ -83,15 +106,17 @@ playing || fail "tapping a song didn't start playback"
 grep -q "Smoke Song 1" "$OUT/session.txt" || fail "the media session isn't showing the song title"
 echo "PASS: tapping a song plays it"
 dump playing
-shot 2-mini-player
+shot 3-mini-player
 
 echo "--- Opening the full player"
-tap playing "Smoke Song 1" last
-sleep 2
-shot 3-now-playing
+tap playing "Smoke Song 1" last # the mini player
+sleep 3
+shot 4-now-playing
 dump nowplaying
-grep -q "NOW PLAYING" "$OUT/nowplaying.xml" || fail "the full player didn't open"
+grep -qi "playing from" "$OUT/nowplaying.xml" || fail "the full player didn't open"
 echo "PASS: full player opens"
+tap nowplaying "Like" last # the heart on the full player (the mini player's is underneath)
+sleep 1
 
 echo "--- Media 'next' button (headphones / lock screen)"
 adb shell input keyevent KEYCODE_MEDIA_NEXT
@@ -107,35 +132,43 @@ playing || fail "playback stopped when the app went to the background"
 echo "PASS: keeps playing in the background"
 adb shell cmd statusbar expand-notifications
 sleep 2
-shot 4-notification
+shot 5-notification
 adb shell cmd statusbar collapse
 
-echo "--- Albums tab"
+echo "--- Albums"
 adb shell am start -W -n "$PKG/.MainActivity"
 sleep 2
 adb shell input keyevent KEYCODE_BACK # close the full player if it's still open
 sleep 1
-dump home
-tap home "Albums"
+dump lib-again
+tap lib-again "Albums"
 sleep 2
-shot 5-albums
+shot 6-albums
 dump albums
-grep -q "CI Album" "$OUT/albums.xml" || fail "the Albums tab doesn't show the test album"
-echo "PASS: albums tab"
+grep -q "CI Album" "$OUT/albums.xml" || fail "Albums doesn't show the test album"
+tap albums "CI Album"
+sleep 3
+shot 7-album-page
+dump album-page
+grep -q "Smoke Song 3" "$OUT/album-page.xml" || fail "the album page doesn't list its songs"
+echo "PASS: albums and album page"
+adb shell input keyevent KEYCODE_BACK
+sleep 1
 
 echo "--- Browsing folders"
-tap albums "Folders"
+dump before-folders
+tap before-folders "Folders"
 sleep 2
 dump folders
-grep -q 'text="Music"' "$OUT/folders.xml" || fail "the Folders tab doesn't show the Music folder"
-grep -q 'text="Podcasts"' "$OUT/folders.xml" || fail "the Folders tab doesn't show the Podcasts folder"
+grep -q 'text="Music"' "$OUT/folders.xml" || fail "Folders doesn't show the Music folder"
+grep -q 'text="Podcasts"' "$OUT/folders.xml" || fail "Folders doesn't show the Podcasts folder"
 tap folders "Music"
 sleep 2
 dump folder-music
 grep -q 'text="SmokeTest"' "$OUT/folder-music.xml" || fail "the Music folder doesn't list its SmokeTest subfolder"
 tap folder-music "SmokeTest"
 sleep 2
-shot 6-folder
+shot 8-folder
 dump folder-smoke
 grep -q "Smoke Song 3" "$OUT/folder-smoke.xml" || fail "the SmokeTest folder doesn't list its songs"
 echo "PASS: folders can be browsed like a file manager"
@@ -163,17 +196,23 @@ adb shell am start -W -n "$PKG/.MainActivity" > /dev/null
 sleep 2
 dump after-add
 if ! grep -q "Music/Hidden" "$OUT/after-add.xml"; then scroll_down; dump after-add; fi
-shot 7-added-folder
+shot 9-added-folder
 grep -q "Music/Hidden" "$OUT/after-add.xml" || fail "the added folder isn't listed under 'Missing songs?'"
-# Browse into it (the Songs tab may be scrolled out of view in the tab row on a small screen).
-tap after-add "Music"
+# Back to the top of the folder list, where the Music folder is.
+adb shell input swipe 540 700 540 2000 300
+sleep 1
+adb shell input swipe 540 700 540 2000 300
+sleep 1
+dump after-add-top
+grep -q 'text="Music"' "$OUT/after-add-top.xml" || fail "the Music folder isn't at the top of the folder list"
+tap after-add-top "Music"
 sleep 2
 dump music-after-add
 grep -q 'text="Hidden"' "$OUT/music-after-add.xml" || fail "the added .nomedia folder doesn't show up under Music"
 tap music-after-add "Hidden"
 sleep 2
 dump hidden-folder
-shot 8-hidden-folder
+shot 10-hidden-folder
 grep -q "Smoke Hidden Song" "$OUT/hidden-folder.xml" || fail "the song in the added .nomedia folder isn't listed"
 echo "PASS: a folder Android hides can be added"
 tap hidden-folder "Smoke Hidden Song"
@@ -181,6 +220,38 @@ sleep 5
 playing || fail "the song from the added folder didn't play"
 grep -q "Smoke Hidden Song" "$OUT/session.txt" || fail "the player isn't showing the added folder's song"
 echo "PASS: songs from an added folder play"
+
+echo "--- Search"
+dump before-search
+tap before-search "Search"
+sleep 2
+dump search
+shot 11-search-browse
+tap search "Songs, artists, albums or folders"
+sleep 1
+adb shell input text Hidden
+sleep 3
+dump search-results
+shot 12-search-results
+grep -q "Smoke Hidden Song" "$OUT/search-results.xml" || fail "searching for 'Hidden' didn't find the song"
+echo "PASS: search finds songs"
+
+echo "--- Home after listening"
+# Close the search keyboard first: it covers the tab bar.
+if adb shell dumpsys input_method | grep -q "mInputShown=true"; then adb shell input keyevent KEYCODE_BACK; sleep 1; fi
+dump before-home
+tap before-home "Home"
+sleep 3
+dump home-after
+shot 13-home-after
+grep -q "Jump back in" "$OUT/home-after.xml" || fail "Home doesn't show 'Jump back in' after playing songs"
+echo "PASS: Home shows recently played music"
+tap home-after "Liked songs"
+sleep 2
+dump liked
+shot 14-liked
+grep -q "Smoke Song 1" "$OUT/liked.xml" || fail "the liked song isn't in Liked songs"
+echo "PASS: liking a song adds it to Liked songs"
 
 if adb logcat -d | grep -q "FATAL EXCEPTION"; then
   adb logcat -d > "$OUT/logcat.txt"
