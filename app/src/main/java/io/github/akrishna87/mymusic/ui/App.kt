@@ -644,37 +644,47 @@ private fun DetailContent(vm: MusicViewModel, detail: DetailData?) {
     if (detail == null) return Hint("This is empty now.")
     LazyColumn(Modifier.fillMaxSize()) {
         item {
-            Row(
-                Modifier.fillMaxWidth().padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                if (detail.folder != null) {
-                    FolderIcon(detail.folder.path, size = 112.dp)
-                } else {
-                    ArtImage(
-                        detail.songs.firstOrNull(),
-                        Modifier.size(112.dp),
-                        sizePx = 400,
-                        shape = if (detail.round) CircleShape else RoundedCornerShape(14.dp),
-                        iconSize = 40.dp,
-                    )
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    if (detail.folder != null) {
+                        FolderIcon(detail.folder.path, size = 96.dp)
+                    } else {
+                        ArtImage(
+                            detail.songs.firstOrNull(),
+                            Modifier.size(96.dp),
+                            sizePx = 400,
+                            shape = if (detail.round) CircleShape else RoundedCornerShape(14.dp),
+                            iconSize = 40.dp,
+                        )
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text(detail.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(detail.subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
                 }
-                Column(Modifier.weight(1f)) {
-                    Text(detail.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(detail.subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { vm.play(detail.songs, 0) }, enabled = detail.songs.isNotEmpty()) {
-                            Icon(Icons.Rounded.PlayArrow, contentDescription = null)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Play")
-                        }
-                        FilledTonalButton(onClick = { vm.play(detail.songs, 0, shuffled = true) }, enabled = detail.songs.isNotEmpty()) {
-                            Icon(Icons.Rounded.Shuffle, contentDescription = null)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Shuffle")
-                        }
+                Spacer(Modifier.height(14.dp))
+                // Full-width row of their own so the buttons never get squeezed on narrow phones.
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        onClick = { vm.play(detail.songs, 0) },
+                        enabled = detail.songs.isNotEmpty(),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.Rounded.PlayArrow, contentDescription = null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Play")
+                    }
+                    FilledTonalButton(
+                        onClick = { vm.play(detail.songs, 0, shuffled = true) },
+                        enabled = detail.songs.isNotEmpty(),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.Rounded.Shuffle, contentDescription = null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Shuffle")
                     }
                 }
             }
