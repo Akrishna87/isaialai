@@ -1,0 +1,269 @@
+package io.github.akrishna87.mymusic
+
+import android.app.Application
+import android.content.ComponentName
+import android.database.ContentObserver
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.media3.common.C
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionToken
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.guava.await
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.random.Random
+
+sealed interface Screen {
+    data class Album(val albumId: Long) : Screen
+    data class Artist(val name: String) : Screen
+    data class Folder(val path: String) : Screen
+    data class PlaylistDetail(val id: String) : Screen
+}
+
+/** A pending "name this playlist" prompt. */
+data class NameRequest(val title: String, val initial: String, val onSave: (String) -> Unit)
+
+class MusicViewModel(app: Application) : AndroidViewModel(app) {
+
+    private val prefs = app.getSharedPreferences("ui", 0)
+
+    // ----- Library -----
+    var songs by mutableStateOf<List<Song>>(emptyList()); private set
+    var songsById by mutableStateOf<Map<Long, Song>>(emptyMap()); private set
+    var loading by mutableStateOf(true); private set
+
+    // ----- Navigation & UI -----
+    val screens = mutableStateListOf<Screen>()
+    var showPlayer by mutableStateOf(false)
+    var tab by mutableIntStateOf(prefs.getInt("tab", 0))
+    var query by mutableStateOf("")
+    var sort by mutableStateOf(SongSort.entries.getOrElse(prefs.getInt("sort", 0)) { SongSort.TITLE })
+    var playlistPickerFor by mutableStateOf<Song?>(null)
+    var nameRequest by mutableStateOf<NameRequest?>(null)
+    private val messageChannel = Channel<String>(Channel.BUFFERED)
+    val messages = messageChannel.receiveAsFlow()
+
+    val playlists = PlaylistStore(app)
+
+    // ----- Player mirror -----
+    var currentId by mutableStateOf<Long?>(null); private set
+    var currentTitle by mutableStateOf(""); private set
+    var currentArtist by mutableStateOf(""); private set
+    var isPlaying by mutableStateOf(false); private set
+    var shuffle by mutableStateOf(false); private set
+    var repeatMode by mutableIntStateOf(Player.REPEAT_MODE_OFF); private set
+    var positionMs by mutableLongStateOf(0L); private set
+    var durationMs by mutableLongStateOf(0L); private set
+    /** Upcoming songs as (queue index, song id), in play order. */
+    var upNext by mutableStateOf<List<Pair<Int, Long>>>(emptyList()); private set
+
+    val currentSong: Song? get() = currentId?.let { songsById[it] }
+
+    private var controller: MediaController? = null
+    private val controllerFuture = MediaController.Builder(
+        app,
+        SessionToken(app, ComponentName(app, PlaybackService::class.java)),
+    ).buildAsync()
+
+    private val playerListener = object : Player.Listener {
+        override fun onEvents(player: Player, events: Player.Events) = syncFromPlayer()
+
+        override fun onPlayerError(error: PlaybackException) {
+            val name = controller?.currentMediaItem?.mediaMetadata?.title ?: "that song"
+            messageChannel.trySend("Couldn't play “$name” — skipping it.")
+        }
+    }
+
+    private var observing = false
+    private var refreshJob: Job? = null
+    private val mediaObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) {
+            // New downloads or deleted files: rescan shortly after things settle down.
+            refreshJob?.cancel()
+            refreshJob = viewModelScope.launch {
+                delay(2_000)
+                refreshLibrary()
+            }
+        }
+    }
+
+    init {
+        viewModelScope.launch {
+            val c = try { controllerFuture.await() } catch (e: Exception) { return@launch }
+            controller = c
+            c.addListener(playerListener)
+            syncFromPlayer()
+        }
+        viewModelScope.launch {
+            while (true) {
+                controller?.let {
+                    positionMs = it.currentPosition.coerceAtLeast(0)
+                    durationMs = it.duration.let { d -> if (d == C.TIME_UNSET || d < 0) 0 else d }
+                }
+                delay(500)
+            }
+        }
+    }
+
+    override fun onCleared() {
+        if (observing) getApplication<Application>().contentResolver.unregisterContentObserver(mediaObserver)
+        controller?.removeListener(playerListener)
+        MediaController.releaseFuture(controllerFuture)
+    }
+
+    fun onPermissionGranted() {
+        if (!observing) {
+            getApplication<Application>().contentResolver.registerContentObserver(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, true, mediaObserver,
+            )
+            observing = true
+        }
+        refreshLibrary()
+    }
+
+    fun refreshLibrary(announce: Boolean = false) {
+        viewModelScope.launch {
+            val list = withContext(Dispatchers.IO) {
+                try {
+                    MusicRepository.loadSongs(getApplication())
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            }
+            songs = list
+            songsById = list.associateBy { it.id }
+            loading = false
+            syncFromPlayer()
+            if (announce) messageChannel.trySend("Found ${list.size} songs")
+        }
+    }
+
+    fun saveTab(i: Int) {
+        tab = i
+        prefs.edit().putInt("tab", i).apply()
+    }
+
+    fun saveSort(s: SongSort) {
+        sort = s
+        prefs.edit().putInt("sort", s.ordinal).apply()
+    }
+
+    fun open(screen: Screen) {
+        showPlayer = false
+        screens += screen
+    }
+
+    fun back(): Boolean = when {
+        showPlayer -> { showPlayer = false; true }
+        screens.isNotEmpty() -> { screens.removeAt(screens.lastIndex); true }
+        else -> false
+    }
+
+    // ----- Playback commands -----
+
+    private fun syncFromPlayer() {
+        val c = controller ?: return
+        val item = c.currentMediaItem
+        currentId = item?.mediaId?.toLongOrNull()
+        currentTitle = item?.mediaMetadata?.title?.toString().orEmpty()
+        currentArtist = item?.mediaMetadata?.artist?.toString().orEmpty()
+        isPlaying = c.isPlaying
+        shuffle = c.shuffleModeEnabled
+        repeatMode = c.repeatMode
+        positionMs = c.currentPosition.coerceAtLeast(0)
+
+        val tl = c.currentTimeline
+        val next = ArrayList<Pair<Int, Long>>()
+        if (!tl.isEmpty && c.currentMediaItemIndex != C.INDEX_UNSET) {
+            var i = c.currentMediaItemIndex
+            while (next.size < 300) {
+                i = tl.getNextWindowIndex(i, Player.REPEAT_MODE_OFF, c.shuffleModeEnabled)
+                if (i == C.INDEX_UNSET) break
+                c.getMediaItemAt(i).mediaId.toLongOrNull()?.let { next += i to it }
+            }
+        }
+        upNext = next
+    }
+
+    fun play(list: List<Song>, start: Int, shuffled: Boolean = false) {
+        val c = controller ?: return
+        if (list.isEmpty()) return
+        if (shuffled) c.shuffleModeEnabled = true
+        val startIndex = if (shuffled) Random.nextInt(list.size) else start.coerceIn(0, list.size - 1)
+        c.setMediaItems(list.map { it.toMediaItem() }, startIndex, 0L)
+        c.prepare()
+        c.play()
+    }
+
+    fun enqueue(song: Song, next: Boolean) {
+        val c = controller ?: return
+        val args = song.toBundle().apply { putBoolean("next", next) }
+        c.sendCustomCommand(SessionCommand(PlaybackService.CMD_ENQUEUE, Bundle.EMPTY), args)
+        messageChannel.trySend(if (next) "Plays next" else "Added to the queue")
+    }
+
+    fun togglePlay() {
+        val c = controller ?: return
+        if (c.isPlaying) c.pause() else {
+            if (c.playbackState == Player.STATE_IDLE) c.prepare()
+            if (c.playbackState == Player.STATE_ENDED) c.seekTo(0)
+            c.play()
+        }
+    }
+
+    fun next() = controller?.seekToNextMediaItem()
+    fun previous() = controller?.seekToPrevious()
+    fun seekTo(ms: Long) = controller?.seekTo(ms)
+    fun jumpTo(index: Int) = controller?.let { it.seekTo(index, 0L); it.play() }
+
+    fun toggleShuffle() {
+        val c = controller ?: return
+        c.shuffleModeEnabled = !c.shuffleModeEnabled
+    }
+
+    fun cycleRepeat() {
+        val c = controller ?: return
+        c.repeatMode = when (c.repeatMode) {
+            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+            else -> Player.REPEAT_MODE_OFF
+        }
+    }
+
+    // ----- Playlists -----
+
+    fun addToPlaylist(playlistId: String, song: Song) {
+        val p = playlists.get(playlistId) ?: return
+        val added = playlists.add(playlistId, listOf(song.id))
+        messageChannel.trySend(if (added > 0) "Added to “${p.name}”" else "Already in “${p.name}”")
+    }
+
+    fun createPlaylist(name: String, with: Song? = null) {
+        val p = playlists.create(name, listOfNotNull(with?.id))
+        messageChannel.trySend(if (with != null) "Added to “${p.name}”" else "Created “${p.name}”")
+    }
+
+    fun deletePlaylist(id: String) {
+        playlists.delete(id)
+        if (screens.lastOrNull() == Screen.PlaylistDetail(id)) screens.removeAt(screens.lastIndex)
+        messageChannel.trySend("Playlist deleted")
+    }
+}
