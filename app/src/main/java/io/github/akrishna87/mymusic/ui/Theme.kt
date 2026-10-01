@@ -204,6 +204,9 @@ object ThemeSettings {
         private set
     var wallpaperColors by mutableStateOf(false)
         private set
+    /** Show the player over the lock screen when the phone is locked with Isaialai open. */
+    var lockScreenPlayer by mutableStateOf(true)
+        private set
     private var loaded = false
 
     private fun prefs(context: Context) = context.getSharedPreferences("ui", Context.MODE_PRIVATE)
@@ -214,6 +217,12 @@ object ThemeSettings {
         val p = prefs(context)
         mode = ThemeMode.entries.firstOrNull { it.name == p.getString("theme", null) } ?: ThemeMode.DARK
         wallpaperColors = p.getBoolean("wallpaperColors", false)
+        lockScreenPlayer = p.getBoolean("lockScreenPlayer", true)
+    }
+
+    fun setLockScreenPlayer(context: Context, on: Boolean) {
+        lockScreenPlayer = on
+        prefs(context).edit().putBoolean("lockScreenPlayer", on).apply()
     }
 
     fun update(context: Context, mode: ThemeMode = this.mode, wallpaperColors: Boolean = this.wallpaperColors) {

@@ -87,6 +87,24 @@ private fun AppearanceCard() {
             }
         }
         Text("The full player always stays dark, tinted by the song's cover.", color = Palette.SubText, fontSize = 13.sp)
+        Spacer(Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Player on the lock screen", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Text(
+                    "If you lock your phone while Isaialai is open, waking it shows the player with the album art, " +
+                        "without unlocking. Your library and settings still need unlocking.",
+                    color = Palette.SubText,
+                    fontSize = 13.sp,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Switch(
+                checked = ThemeSettings.lockScreenPlayer,
+                onCheckedChange = { ThemeSettings.setLockScreenPlayer(context, it) },
+                modifier = Modifier.semantics { contentDescription = "Player on the lock screen" },
+            )
+        }
         if (Build.VERSION.SDK_INT >= 31) {
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {

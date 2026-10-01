@@ -81,6 +81,12 @@ old one and keeps your playlists.
     **Colours from your wallpaper** uses your phone's Material You colours for
     buttons and highlights. The full player always stays dark, tinted by the
     cover.
+  - **Player on the lock screen** (on unless you turn it off): lock your
+    phone while Isaialai is open and waking it shows a full-screen player with
+    the album art, without unlocking. Only the player shows there; your
+    library and settings need unlocking. (Android doesn't let apps put
+    themselves on the lock screen from the background, so this works when
+    Isaialai was open. The phone's own lock-screen controls work any time.)
   - **Crossfade**: blend each song into the next over 1–12 seconds, with no
     silence in between. The next song starts early on a second player and
     fades in while the current one fades out. The equaliser applies to both.

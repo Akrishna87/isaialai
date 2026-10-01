@@ -698,6 +698,28 @@ echo "PASS: light and dark themes"
 adb shell input keyevent KEYCODE_BACK
 sleep 1
 
+echo "--- Player on the lock screen"
+playing || { adb shell input keyevent KEYCODE_MEDIA_PLAY; sleep 2; }
+adb shell locksettings set-pin 1111 > /dev/null
+adb shell input keyevent KEYCODE_SLEEP
+sleep 2
+adb shell input keyevent KEYCODE_WAKEUP
+sleep 3
+dump lock
+shot 29-lock-screen
+grep -q 'content-desc="Lock screen player"' "$OUT/lock.xml" || fail "waking the locked phone didn't show the player over the lock screen"
+grep -q 'text="Library"' "$OUT/lock.xml" && fail "the library is reachable from the lock screen"
+grep -q "text=\"$(now_playing)\"" "$OUT/lock.xml" || fail "the lock-screen player doesn't show the song that's playing"
+tap lock "Unlock to open Isaialai"
+sleep 2
+adb shell input text 1111
+adb shell input keyevent KEYCODE_ENTER
+sleep 3
+dump unlocked
+grep -q 'text="Library"' "$OUT/unlocked.xml" || fail "unlocking didn't go back to the app"
+adb shell locksettings clear --old 1111 > /dev/null
+echo "PASS: the player shows over the lock screen, and only the player"
+
 echo "--- Home-screen widget"
 adb shell dumpsys appwidget | grep -q "mymusic.PlayerWidget" || fail "the home-screen widget isn't registered with the launcher"
 echo "PASS: home-screen widget is available"

@@ -99,7 +99,7 @@ private fun detailFor(vm: MusicViewModel, screen: Screen): DetailData? {
                 DetailData(DetailKind.SMART, screen.kind.label, vm.smartSongs(screen.kind, songs), smart = screen.kind)
             }
         }
-        Screen.Duplicates -> null
+        Screen.Duplicates, Screen.Settings -> null
         is Screen.PlaylistDetail -> {
             val playlist = vm.playlists.get(screen.id)
             val byId = vm.songsById

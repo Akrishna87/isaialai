@@ -1,6 +1,7 @@
 package io.github.akrishna87.mymusic.ui
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -79,7 +80,16 @@ fun MusicApp(vm: MusicViewModel = viewModel()) {
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { granted = hasAudioPermission(context) }
     LaunchedEffect(granted) { if (granted) vm.onPermissionGranted() }
 
-    if (granted) {
+    // Lock-screen player: with music loaded, the app may show over the lock screen, but only
+    // the player does; everything else waits until the phone is unlocked.
+    val activity = context as? Activity
+    val overLockScreen = granted && ThemeSettings.lockScreenPlayer && vm.currentId != null
+    LaunchedEffect(overLockScreen) { activity?.showOverLockScreen(overLockScreen) }
+    val locked = rememberPhoneLocked()
+
+    if (granted && locked && overLockScreen) {
+        LockScreenPlayer(vm)
+    } else if (granted) {
         Shell(vm)
     } else {
         PermissionScreen(
