@@ -657,9 +657,10 @@ tap song-menu-edit "Edit song details"
 sleep 2
 dump edit-dialog
 shot 25-edit-song
-tap edit-dialog "Title"
+tap edit-dialog "Clear Title" # before the keyboard opens and moves the dialog
 sleep 1
-tap edit-dialog "Clear Title"
+dump edit-cleared
+tap edit-cleared "Title"
 sleep 1
 adb shell input text "Edited%sTitle"
 sleep 1
@@ -671,6 +672,7 @@ dump songs-edited
 shot 26-song-edited
 grep -q 'text="Edited Title"' "$OUT/songs-edited.xml" || fail "the edited title isn't shown in the song list"
 grep -q 'text="Smoke Podcast Song"' "$OUT/songs-edited.xml" && fail "the old title is still shown after editing"
+grep -q 'CI Band · CI Extras' "$OUT/songs-edited.xml" || fail "editing the title changed the song's other details"
 echo "PASS: song details can be edited"
 
 echo "--- Light theme"
