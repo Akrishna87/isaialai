@@ -223,7 +223,8 @@ echo "PASS: playback speed can be changed and reset"
 
 echo "--- Swipe gestures on the full player"
 SIZE=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); W=${SIZE%x*}; H=${SIZE#*x}
-adb shell input swipe $((W * 8 / 10)) $((H * 38 / 100)) $((W * 2 / 10)) $((H * 38 / 100)) 250 # swipe the cover left
+sleep 1 # let the speed dialog finish closing
+adb shell input swipe $((W * 8 / 10)) $((H * 38 / 100)) $((W * 2 / 10)) $((H * 38 / 100)) 500 # swipe the cover left
 sleep 3
 session
 grep -q "Smoke Song 3" "$OUT/session.txt" || fail "swiping the cover left didn't skip to the next song"
