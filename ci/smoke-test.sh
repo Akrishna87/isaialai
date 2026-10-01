@@ -584,12 +584,15 @@ open_settings() {
 open_settings
 dump settings
 shot 22-settings
-tap settings "Even volume"
-sleep 1
 tap settings "5 s" # crossfade
 sleep 1
+dump settings-xfade
+grep -q 'Crossfade: 5 s' "$OUT/settings-xfade.xml" || fail "choosing a 5 s crossfade didn't stick"
+scroll_down # Even volume is at the bottom, under the mini player
+dump settings-scrolled
+tap settings-scrolled "Even volume"
+sleep 1
 dump settings-on
-grep -q 'Crossfade: 5 s' "$OUT/settings-on.xml" || fail "choosing a 5 s crossfade didn't stick"
 python3 - "$OUT/settings-on.xml" <<'PY' || fail "the Even volume switch didn't turn on"
 import sys, xml.etree.ElementTree as ET
 nodes = [n for n in ET.parse(sys.argv[1]).iter("node") if n.get("content-desc") == "Even volume"]

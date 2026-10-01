@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -20,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -88,37 +90,18 @@ private fun AppearanceCard() {
         }
         Text("The full player always stays dark, tinted by the song's cover.", color = Palette.SubText, fontSize = 13.sp)
         Spacer(Modifier.height(4.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Player on the lock screen", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                Text(
-                    "If you lock your phone while Isaialai is open, waking it shows the player with the album art, " +
-                        "without unlocking. Your library and settings still need unlocking.",
-                    color = Palette.SubText,
-                    fontSize = 13.sp,
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            Switch(
-                checked = ThemeSettings.lockScreenPlayer,
-                onCheckedChange = { ThemeSettings.setLockScreenPlayer(context, it) },
-                modifier = Modifier.semantics { contentDescription = "Player on the lock screen" },
-            )
-        }
+        SwitchRow(
+            "Player on the lock screen",
+            "If you lock your phone while Isaialai is open, waking it shows the player with the album art, " +
+                "without unlocking. Your library and settings still need unlocking.",
+            checked = ThemeSettings.lockScreenPlayer,
+        ) { ThemeSettings.setLockScreenPlayer(context, it) }
         if (Build.VERSION.SDK_INT >= 31) {
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Colours from your wallpaper", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                    Text("Use your phone's Material You colours for buttons and highlights.", color = Palette.SubText, fontSize = 13.sp)
-                }
-                Spacer(Modifier.width(12.dp))
-                Switch(
-                    checked = ThemeSettings.wallpaperColors,
-                    onCheckedChange = { ThemeSettings.update(context, wallpaperColors = it) },
-                    modifier = Modifier.semantics { contentDescription = "Colours from your wallpaper" },
-                )
-            }
+            SwitchRow(
+                "Colours from your wallpaper",
+                "Use your phone's Material You colours for buttons and highlights.",
+                checked = ThemeSettings.wallpaperColors,
+            ) { ThemeSettings.update(context, wallpaperColors = it) }
         }
     }
 }
@@ -161,24 +144,13 @@ private fun CrossfadeCard(vm: MusicViewModel) {
 @Composable
 private fun EvenVolumeCard(vm: MusicViewModel) {
     SettingsCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Even volume", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                Text(
-                    "Turns loud songs down and quiet ones up, so you don't have to reach for the volume between songs. " +
-                        "Each song is measured the first time it plays.",
-                    color = Palette.SubText,
-                    fontSize = 13.sp,
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            Switch(
-                checked = vm.evenVolume,
-                onCheckedChange = vm::setEvenVolumeOn,
-                modifier = Modifier.semantics { contentDescription = "Even volume" },
-                colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary, checkedThumbColor = Color.White),
-            )
-        }
+        SwitchRow(
+            "Even volume",
+            "Turns loud songs down and quiet ones up, so you don't have to reach for the volume between songs. " +
+                "Each song is measured the first time it plays.",
+            checked = vm.evenVolume,
+            onChange = vm::setEvenVolumeOn,
+        )
         val now = vm.evenVolumeNow
         if (vm.evenVolume && now != null) {
             val (title, db) = now
@@ -211,5 +183,30 @@ private fun LinkRow(icon: ImageVector, title: String, subtitle: String, onClick:
             Text(subtitle, color = Palette.SubText, fontSize = 13.sp)
         }
         Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = Palette.SubText)
+    }
+}
+
+/** A setting that's on or off: tap anywhere on the row to switch it. */
+@Composable
+private fun SwitchRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onChange)
+            .semantics { contentDescription = title }
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+            Text(subtitle, color = Palette.SubText, fontSize = 13.sp)
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = null, // the whole row switches it
+            colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary, checkedThumbColor = Color.White),
+        )
     }
 }
