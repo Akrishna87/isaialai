@@ -73,6 +73,8 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     var addedFolders by mutableStateOf<List<Pair<Uri, String>>>(emptyList()); private set
     var scanningFolders by mutableStateOf(false); private set
     private var folderSongs: List<Song> = emptyList()
+    /** .lrc files in added folders, keyed by [LyricsLoader.lrcKey]. */
+    var lrcFiles by mutableStateOf<Map<String, Uri>>(emptyMap()); private set
 
     // ----- Navigation & UI -----
     val screens = mutableStateListOf<Screen>()
@@ -129,6 +131,9 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     var durationMs by mutableLongStateOf(0L); private set
     /** Upcoming songs as (queue index, song id), in play order. */
     var upNext by mutableStateOf<List<Pair<Int, String>>>(emptyList()); private set
+    var speed by mutableStateOf(1f); private set
+    /** Pitch as a factor (1 = normal); the screen shows it in semitones. */
+    var pitch by mutableStateOf(1f); private set
 
     val currentSong: Song? get() = currentId?.let { songsById[it] }
 
@@ -228,14 +233,17 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
             val trees = AddedFolders.list(app)
             addedFolders = withContext(Dispatchers.IO) { trees.map { it to AddedFolders.displayPath(app, it) } }
+            LyricsLoader.forget()
             if (trees.isEmpty()) {
                 folderSongs = emptyList()
+                lrcFiles = emptyMap()
                 publish(library)
             } else {
                 scanningFolders = true
                 try {
                     val result = withContext(Dispatchers.IO) { AddedFolders.scan(app, trees, known) }
                     folderSongs = result.songs
+                    lrcFiles = result.lyricsFiles
                     publish(library + result.songs)
                     if (newFolder != null) {
                         val name = addedFolders.firstOrNull { it.first == newFolder }?.second ?: "the folder"
@@ -312,6 +320,8 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         shuffle = c.shuffleModeEnabled
         repeatMode = c.repeatMode
         positionMs = c.currentPosition.coerceAtLeast(0)
+        speed = c.playbackParameters.speed
+        pitch = c.playbackParameters.pitch
 
         val tl = c.currentTimeline
         val next = ArrayList<Pair<Int, String>>()
@@ -429,6 +439,37 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     fun previousTrack() = controller?.seekToPreviousMediaItem()
     fun seekTo(ms: Long) = controller?.seekTo(ms)
     fun jumpTo(index: Int) = controller?.let { it.seekTo(index, 0L); it.play() }
+
+    /** Moves a song within Up next ([from] and [to] are positions in [upNext]). */
+    fun moveUpNext(from: Int, to: Int) {
+        val c = controller ?: return
+        if (from == to || from !in upNext.indices || to !in upNext.indices) return
+        // Show the new order straight away; the player confirms it a moment later.
+        upNext = upNext.toMutableList().apply { add(to, removeAt(from)) }
+        c.sendCustomCommand(
+            SessionCommand(PlaybackService.CMD_MOVE_UPCOMING, Bundle.EMPTY),
+            Bundle().apply { putInt("from", from); putInt("to", to) },
+        )
+    }
+
+    /** Takes a song out of the queue ([queueIndex] as in [upNext]). */
+    fun removeFromQueue(queueIndex: Int) {
+        val c = controller ?: return
+        if (queueIndex !in 0 until c.mediaItemCount || queueIndex == c.currentMediaItemIndex) return
+        val title = c.getMediaItemAt(queueIndex).mediaMetadata.title
+        upNext = upNext.filter { it.first != queueIndex }
+        c.removeMediaItem(queueIndex)
+        messageChannel.trySend("Removed “$title” from the queue")
+    }
+
+    fun setSpeedAndPitch(newSpeed: Float, newPitch: Float) {
+        val c = controller ?: return
+        c.playbackParameters = androidx.media3.common.PlaybackParameters(newSpeed.coerceIn(0.5f, 2f), newPitch.coerceIn(0.5f, 2f))
+    }
+
+    suspend fun loadLyrics(song: Song): Lyrics? = withContext(Dispatchers.IO) {
+        LyricsLoader.load(getApplication(), song, lrcFiles)
+    }
 
     fun toggleShuffle() {
         val c = controller ?: return

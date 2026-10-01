@@ -53,7 +53,8 @@ object AddedFolders {
         } ?: "Added folder"
     }
 
-    class ScanResult(val songs: List<Song>, val audioFilesPerFolder: Map<Uri, Int>)
+    /** [lyricsFiles]: .lrc files found, keyed by [LyricsLoader.lrcKey] of the song they belong to. */
+    class ScanResult(val songs: List<Song>, val audioFilesPerFolder: Map<Uri, Int>, val lyricsFiles: Map<String, Uri>)
 
     /**
      * Walks every added folder and returns the songs in them, skipping files whose
@@ -64,15 +65,16 @@ object AddedFolders {
         val out = ArrayList<Song>()
         val seen = HashSet<String>()
         val perFolder = HashMap<Uri, Int>()
+        val lyrics = HashMap<String, Uri>()
         for (tree in trees) {
             perFolder[tree] = try {
-                walk(context, tree, tags, alreadyKnown, seen, out)
+                walk(context, tree, tags, alreadyKnown, seen, out, lyrics)
             } catch (e: Exception) {
                 0 // folder deleted, card removed, or access revoked
             }
         }
         tags.save()
-        return ScanResult(out, perFolder)
+        return ScanResult(out, perFolder, lyrics)
     }
 
     private fun walk(
@@ -82,6 +84,7 @@ object AddedFolders {
         alreadyKnown: Set<String>,
         seen: MutableSet<String>,
         out: MutableList<Song>,
+        lyrics: MutableMap<String, Uri>,
     ): Int {
         val external = tree.authority == EXTERNAL_STORAGE
         val rootId = DocumentsContract.getTreeDocumentId(tree)
@@ -107,6 +110,12 @@ object AddedFolders {
                     val mime = c.getString(2).orEmpty()
                     if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
                         if (!name.startsWith(".")) pending += docId to (if (dirPath.isEmpty()) name else "$dirPath/$name")
+                        continue
+                    }
+                    if (external && name.endsWith(".lrc", ignoreCase = true)) {
+                        val path = docId.substringAfter(':', "")
+                        val key = Storage.locationKey(docId.substringBefore(':'), path.substringBeforeLast('/', ""), name)
+                        lyrics[LyricsLoader.lrcKey(key)] = DocumentsContract.buildDocumentUriUsingTree(tree, docId)
                         continue
                     }
                     if (!mime.startsWith("audio/") && !AUDIO_EXTENSIONS.containsMatchIn(name)) continue

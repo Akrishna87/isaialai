@@ -16,6 +16,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.BitmapLoader
@@ -63,6 +64,9 @@ class PlaybackService : MediaSessionService() {
 
         /** Custom command: sleep timer. Arg "minutes": > 0 to stop after that long, -1 at the end of the song, 0 to cancel. */
         const val CMD_SLEEP = "io.github.akrishna87.mymusic.SLEEP"
+
+        /** Custom command: move a song within Up next. Args "from" and "to": positions in Up next (0 = next song). */
+        const val CMD_MOVE_UPCOMING = "io.github.akrishna87.mymusic.MOVE_UPCOMING"
     }
 
     private var session: MediaSession? = null
@@ -100,6 +104,7 @@ class PlaybackService : MediaSessionService() {
         activePlayer = player
         effectsPrefs.registerOnSharedPreferenceChangeListener(effectsListener)
         clearSleep() // a timer can't outlive the service that was running it
+        restorePlaybackSpeed()
 
         val openApp = PendingIntent.getActivity(
             this,
@@ -144,6 +149,13 @@ class PlaybackService : MediaSessionService() {
             }
 
             override fun onRepeatModeChanged(repeatMode: Int) = savePosition()
+
+            override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+                getSharedPreferences("position", Context.MODE_PRIVATE).edit()
+                    .putFloat("speed", playbackParameters.speed)
+                    .putFloat("pitch", playbackParameters.pitch)
+                    .apply()
+            }
 
             override fun onPlayerError(error: PlaybackException) {
                 // Skip songs that can't be played (deleted, unsupported format) instead of stopping.
@@ -291,7 +303,47 @@ class PlaybackService : MediaSessionService() {
         effectsPrefs.edit().remove(Effects.KEY_SLEEP_UNTIL).remove(Effects.KEY_SLEEP_END_OF_SONG).apply()
     }
 
+    // ----- Speed & pitch -----
+
+    private fun restorePlaybackSpeed() {
+        val p = getSharedPreferences("position", Context.MODE_PRIVATE)
+        val speed = p.getFloat("speed", 1f).coerceIn(0.25f, 3f)
+        val pitch = p.getFloat("pitch", 1f).coerceIn(0.25f, 3f)
+        if (speed != 1f || pitch != 1f) player.playbackParameters = PlaybackParameters(speed, pitch)
+    }
+
     // ----- Queue helpers -----
+
+    /** Queue indexes of the songs after the current one, in the order they'll play. */
+    private fun upcoming(): MutableList<Int> {
+        val out = mutableListOf<Int>()
+        val tl = player.currentTimeline
+        if (tl.isEmpty) return out
+        var i = player.currentMediaItemIndex
+        while (true) {
+            i = tl.getNextWindowIndex(i, Player.REPEAT_MODE_OFF, player.shuffleModeEnabled)
+            if (i == C.INDEX_UNSET || out.size >= tl.windowCount) break
+            out += i
+        }
+        return out
+    }
+
+    /** Moves the song at Up next position [from] to position [to], with or without shuffle. */
+    private fun moveUpcoming(from: Int, to: Int) {
+        val up = upcoming()
+        if (from !in up.indices || to !in up.indices || from == to) return
+        val cur = player.currentMediaItemIndex
+        if (player.shuffleModeEnabled) {
+            // Keep what has played, then the new Up next order.
+            val order = shuffledIndexes()
+            val played = order.subList(0, order.indexOf(cur) + 1).toList()
+            up.add(to, up.removeAt(from))
+            applyShuffleOrder(played + up)
+        } else {
+            // Without shuffle, Up next is simply the queue after the current song.
+            player.moveMediaItem(cur + 1 + from, cur + 1 + to)
+        }
+    }
 
     /** The queue indexes in the order they will play when shuffle is on. */
     private fun shuffledIndexes(): MutableList<Int> {
@@ -430,6 +482,7 @@ class PlaybackService : MediaSessionService() {
                 val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
                     .add(SessionCommand(CMD_ENQUEUE, Bundle.EMPTY))
                     .add(SessionCommand(CMD_SLEEP, Bundle.EMPTY))
+                    .add(SessionCommand(CMD_MOVE_UPCOMING, Bundle.EMPTY))
                     .build()
                 return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                     .setAvailableSessionCommands(commands)
@@ -467,6 +520,10 @@ class PlaybackService : MediaSessionService() {
                 val item = songFromBundle(args).toMediaItem().trustedOrNull(TrustedUris(this@PlaybackService))
                     ?: return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_BAD_VALUE))
                 enqueue(item, args.getBoolean("next"))
+                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+            }
+            if (customCommand.customAction == CMD_MOVE_UPCOMING) {
+                moveUpcoming(args.getInt("from", -1), args.getInt("to", -1))
                 return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
             }
             if (customCommand.customAction == CMD_SLEEP) {

@@ -64,6 +64,18 @@ old one and keeps your playlists.
 - **Sleep timer**: tap the moon on the full player. Choose 15, 30 or 45
   minutes, 1 hour, or the end of the current song. The music fades out
   gently, and the time left shows next to the moon.
+- **Lyrics**: tap the lyrics button on the full player. Timed lyrics from an
+  `.lrc` file scroll along with the song and light up line by line; tap a
+  line to jump there. Isaialai reads lyrics saved inside the song file, or an
+  `.lrc` file with the same name in the same folder. Android only lets apps
+  read `.lrc` files in folders you've added (Library → Folders → Add a folder).
+- **Edit Up next**: on the full player's Up next list, drag a song by its ≡
+  handle to move it, or swipe it left to take it out of the queue. This works
+  with shuffle on too.
+- **Speed and pitch**: tap **1×** on the full player. Pick 0.75× to 2×, or
+  slide to any speed in between, without changing the key. Pitch moves the
+  key up or down by up to 6 semitones (handy for singing along) without
+  changing the speed. Both stay until you tap Reset.
 - **Swipe gestures**:
   - On the mini player: swipe left for the next song, right for the previous one.
   - On the full player: swipe the cover to change song, and swipe down to close.

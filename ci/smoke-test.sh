@@ -79,6 +79,7 @@ adb push "$SONGS/podcast.mp3" /sdcard/Podcasts/ > /dev/null
 adb shell mkdir -p /sdcard/Music/Hidden
 adb shell touch /sdcard/Music/Hidden/.nomedia
 adb push "$SONGS/hidden.mp3" /sdcard/Music/Hidden/ > /dev/null
+adb push "$SONGS/hidden.lrc" /sdcard/Music/Hidden/ > /dev/null
 # The same song in two folders, for the duplicate finder.
 adb shell mkdir -p /sdcard/Music/TwinA /sdcard/Music/TwinB
 adb push "$SONGS/twin.mp3" /sdcard/Music/TwinA/ > /dev/null
@@ -184,6 +185,38 @@ sleep 3
 session
 grep -q "Smoke Song 2" "$OUT/session.txt" || fail "the media next button didn't skip to the next song"
 echo "PASS: media next button works"
+
+echo "--- Lyrics saved inside the song"
+dump before-lyrics
+tap before-lyrics "Show lyrics"
+sleep 4
+dump lyrics-embedded
+shot 4e-lyrics-embedded
+grep -q "Smoke lyrics line one" "$OUT/lyrics-embedded.xml" || fail "the lyrics saved in Smoke Song 2 aren't shown"
+grep -q "Smoke lyrics line two" "$OUT/lyrics-embedded.xml" || fail "only part of the saved lyrics is shown"
+echo "PASS: shows lyrics saved inside a song"
+tap lyrics-embedded "Hide lyrics"
+sleep 1
+
+echo "--- Playback speed and pitch"
+dump before-speed
+tap before-speed "Playback speed"
+sleep 1
+dump speed-dialog
+shot 4f-speed
+tap speed-dialog "1.5×"
+sleep 2
+session
+grep -q "speed=1.5" "$OUT/session.txt" || fail "choosing 1.5× didn't speed up playback"
+dump speed-dialog2
+tap speed-dialog2 "Reset"
+sleep 1
+dump speed-dialog3
+tap speed-dialog3 "Done"
+sleep 2
+session
+grep -q "speed=1.0" "$OUT/session.txt" || fail "Reset didn't bring the speed back to normal"
+echo "PASS: playback speed can be changed and reset"
 
 echo "--- Swipe gestures on the full player"
 SIZE=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); W=${SIZE%x*}; H=${SIZE#*x}
@@ -309,6 +342,27 @@ playing || fail "the song from the added folder didn't play"
 grep -q "Smoke Hidden Song" "$OUT/session.txt" || fail "the player isn't showing the added folder's song"
 echo "PASS: songs from an added folder play"
 
+echo "--- Timed lyrics from an .lrc file"
+dump before-lrc
+tap before-lrc "Smoke Hidden Song" last # the mini player
+sleep 2
+dump lrc-player
+tap lrc-player "Show lyrics"
+sleep 4
+dump lrc-lyrics
+shot 10b-lrc-lyrics
+grep -q "Second line here" "$OUT/lrc-lyrics.xml" || fail "the .lrc lyrics next to the song aren't shown"
+grep -q "\[00:" "$OUT/lrc-lyrics.xml" && fail "the lyrics show raw timestamps"
+tap lrc-lyrics "Twenty seconds in"
+sleep 2
+session
+POS=$(grep -o "position=[0-9]*" "$OUT/session.txt" | head -1 | cut -d= -f2)
+echo "position after tapping the 0:20 line: $POS ms"
+[ "${POS:-0}" -ge 19000 ] || fail "tapping a lyrics line didn't jump to it"
+echo "PASS: timed lyrics from an .lrc file, and tapping a line jumps there"
+adb shell input keyevent KEYCODE_BACK # close the player
+sleep 1
+
 echo "--- Search"
 dump before-search
 tap before-search "Search"
@@ -426,6 +480,39 @@ in_order = ["Tune %02d" % k for k in range(cur + 1, 13)]
 sys.exit(0 if len(shown) >= 4 and shown != in_order[:len(shown)] else 1)
 PY
 echo "PASS: turning shuffle back on reshuffles, keeping the current song"
+
+echo "--- Editing Up next (drag to move, swipe to remove)"
+A=$(sed -n 1p "$OUT/queue-reshuffled.txt"); B=$(sed -n 2p "$OUT/queue-reshuffled.txt"); C=$(sed -n 3p "$OUT/queue-reshuffled.txt")
+DENSITY=$(adb shell wm density | grep -o '[0-9]*' | tail -1)
+ROW=$((64 * DENSITY / 160))
+XY=$(python3 "$HERE/find_text.py" "$OUT/queue-reshuffled.xml" "Reorder $A") || fail "Up next has no drag handle for $A"
+X=${XY% *}; Y=${XY#* }
+adb shell input swipe "$X" "$Y" "$X" $((Y + ROW * 2 + ROW / 5)) 1500 # drag $A down two places
+sleep 2
+dump queue-moved
+shot 16b-up-next-moved
+python3 "$HERE/up_next.py" "$OUT/queue-moved.xml" "$CUR" > "$OUT/queue-moved.txt" || true
+echo "Up next after moving $A down two places:"; cat "$OUT/queue-moved.txt"
+[ "$(sed -n 1p "$OUT/queue-moved.txt")" = "$B" ] && [ "$(sed -n 2p "$OUT/queue-moved.txt")" = "$C" ] && [ "$(sed -n 3p "$OUT/queue-moved.txt")" = "$A" ] \
+  || fail "dragging $A down two places didn't give $B, $C, $A"
+adb shell input keyevent KEYCODE_MEDIA_NEXT
+sleep 3
+[ "$(now_playing)" = "$B" ] || fail "after moving songs, the next song played wasn't $B"
+echo "PASS: dragging a song in Up next changes what plays next"
+dump queue-before-remove
+XY=$(python3 "$HERE/find_text.py" "$OUT/queue-before-remove.xml" "Up next: $C") || fail "$C isn't in Up next"
+Y=${XY#* }
+adb shell input swipe $((W * 85 / 100)) "$Y" $((W * 10 / 100)) "$Y" 250 # swipe $C away
+sleep 2
+dump queue-removed
+shot 16c-up-next-removed
+python3 "$HERE/up_next.py" "$OUT/queue-removed.xml" "$B" > "$OUT/queue-removed.txt" || true
+echo "Up next after removing $C:"; cat "$OUT/queue-removed.txt"
+grep -qx "$C" "$OUT/queue-removed.txt" && fail "swiping $C left didn't remove it from Up next"
+adb shell input keyevent KEYCODE_MEDIA_NEXT
+sleep 3
+[ "$(now_playing)" = "$A" ] || fail "after removing $C, the next song wasn't $A (got $(now_playing))"
+echo "PASS: swiping a song left removes it from the queue"
 adb shell input keyevent KEYCODE_BACK # close the player
 sleep 1
 

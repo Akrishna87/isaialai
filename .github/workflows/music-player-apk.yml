@@ -116,6 +116,17 @@ jobs:
           # goes in a folder with a .nomedia file, which Android's media library skips
           ffmpeg -loglevel error -f lavfi -i "sine=frequency=770:duration=60" -c:a libmp3lame \
             -metadata title="Smoke Hidden Song" -metadata artist="Hidden Band" -metadata album="Hidden Album" songs/hidden.mp3
+          # timed lyrics next to it, as an .lrc file
+          printf '%s\n' "[ti:Smoke Hidden Song]" "[00:00.50]First line of the hidden song" "[00:05.00]Second line here" \
+            "[00:20.00]Twenty seconds in" "[00:40.00]Last line" > songs/hidden.lrc
+          # plain lyrics saved inside a song (an ID3 USLT frame)
+          python3 -m venv "$RUNNER_TEMP/venv" && "$RUNNER_TEMP/venv/bin/pip" install --quiet mutagen==1.47.0
+          "$RUNNER_TEMP/venv/bin/python" - <<'PY'
+          from mutagen.id3 import ID3, USLT
+          tags = ID3("songs/song2.mp3")
+          tags.add(USLT(encoding=3, lang="eng", desc="", text="Smoke lyrics line one\nSmoke lyrics line two"))
+          tags.save()
+          PY
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
