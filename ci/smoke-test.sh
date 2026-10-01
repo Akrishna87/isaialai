@@ -22,7 +22,19 @@ fail() {
   adb logcat -d > "$OUT/logcat.txt" || true
   exit 1
 }
-dump() { adb shell uiautomator dump /sdcard/ui.xml > /dev/null && adb pull /sdcard/ui.xml "$OUT/$1.xml" > /dev/null; }
+dump() {
+  local i
+  for i in 1 2 3; do
+    adb shell uiautomator dump /sdcard/ui.xml > /dev/null && adb pull /sdcard/ui.xml "$OUT/$1.xml" > /dev/null
+    # The emulator's own apps (e.g. the launcher) sometimes freeze while it warms up; wave the
+    # "isn't responding" popup away so it doesn't cover My Music. Crashes of My Music itself are
+    # still caught from logcat at the end.
+    grep -q "isn&apos;t responding\|isn't responding" "$OUT/$1.xml" || return 0
+    echo "(dismissing a system 'isn't responding' popup)"
+    python3 "$HERE/find_text.py" "$OUT/$1.xml" "Wait" > /dev/null 2>&1 && adb shell input tap $(python3 "$HERE/find_text.py" "$OUT/$1.xml" "Wait")
+    sleep 3
+  done
+}
 shot() { adb exec-out screencap -p > "$OUT/$1.png"; }
 tap() { # tap <dump name> <text> [first|last]
   local xy
@@ -62,6 +74,8 @@ adb shell content query --uri content://media/external/audio/media --projection 
 echo "Android's media library has the .nomedia song: $HIDDEN_IN_LIBRARY"
 
 echo "--- Launching the app (opens on Home)"
+# Don't let other apps' "isn't responding" popups cover the screen during the test.
+adb shell settings put global hide_error_dialogs 1 || true
 adb shell pm grant "$PKG" android.permission.READ_MEDIA_AUDIO
 adb logcat -c
 adb shell am start -W -n "$PKG/.MainActivity"
