@@ -165,12 +165,18 @@ dump after-add
 if ! grep -q "Music/Hidden" "$OUT/after-add.xml"; then scroll_down; dump after-add; fi
 shot 7-added-folder
 grep -q "Music/Hidden" "$OUT/after-add.xml" || fail "the added folder isn't listed under 'Missing songs?'"
-tap after-add "Songs"
+# Browse into it (the Songs tab may be scrolled out of view in the tab row on a small screen).
+tap after-add "Music"
 sleep 2
-dump songs-after-add
-grep -q "Smoke Hidden Song" "$OUT/songs-after-add.xml" || fail "the song in the added .nomedia folder isn't listed"
+dump music-after-add
+grep -q 'text="Hidden"' "$OUT/music-after-add.xml" || fail "the added .nomedia folder doesn't show up under Music"
+tap music-after-add "Hidden"
+sleep 2
+dump hidden-folder
+shot 8-hidden-folder
+grep -q "Smoke Hidden Song" "$OUT/hidden-folder.xml" || fail "the song in the added .nomedia folder isn't listed"
 echo "PASS: a folder Android hides can be added"
-tap songs-after-add "Smoke Hidden Song"
+tap hidden-folder "Smoke Hidden Song"
 sleep 5
 playing || fail "the song from the added folder didn't play"
 grep -q "Smoke Hidden Song" "$OUT/session.txt" || fail "the player isn't showing the added folder's song"
