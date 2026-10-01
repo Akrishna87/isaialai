@@ -9,7 +9,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -448,7 +447,8 @@ private fun UpNextList(vm: MusicViewModel) {
                         modifier = Modifier
                             .size(48.dp)
                             .pointerInput(pos, items.size) {
-                                detectDragGestures(
+                                // Up/down only, so a sideways swipe starting here still removes the song.
+                                detectVerticalDragGestures(
                                     onDragStart = { dragFrom = pos; dragOffset = 0f },
                                     onDragEnd = {
                                         val start = dragFrom
@@ -460,7 +460,7 @@ private fun UpNextList(vm: MusicViewModel) {
                                     onDragCancel = { dragFrom = null; dragOffset = 0f },
                                 ) { change, amount ->
                                     change.consume()
-                                    dragOffset += amount.y
+                                    dragOffset += amount
                                 }
                             }
                             .padding(12.dp),

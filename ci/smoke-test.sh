@@ -504,7 +504,7 @@ echo "PASS: dragging a song in Up next changes what plays next"
 dump queue-before-remove
 XY=$(python3 "$HERE/find_text.py" "$OUT/queue-before-remove.xml" "Up next: $C") || fail "$C isn't in Up next"
 Y=${XY#* }
-adb shell input swipe $((W * 85 / 100)) "$Y" $((W * 10 / 100)) "$Y" 250 # swipe $C away
+adb shell input swipe $((W * 60 / 100)) "$Y" $((W * 5 / 100)) "$Y" 250 # swipe $C away
 sleep 2
 dump queue-removed
 shot 16c-up-next-removed
