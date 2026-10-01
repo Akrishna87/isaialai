@@ -19,10 +19,22 @@ fun Song.toMediaItem(): MediaItem = MediaItem.Builder()
     )
     .build()
 
-/** Media items sent from the screen to the player lose their file location on the way; put it back. */
-fun MediaItem.withPlayableUri(): MediaItem =
-    if (localConfiguration != null || mediaId.isEmpty()) this
-    else buildUpon().setUri(Song.uriForId(mediaId)).build()
+/**
+ * Rebuilds a media item handed to the player from its song id alone, or returns null when the id
+ * names something that isn't one of your songs. (Items lose their file location on the way from
+ * the screen to the player anyway, and other apps can send items too, so nothing else is trusted.)
+ */
+fun MediaItem.trustedOrNull(trusted: TrustedUris): MediaItem? {
+    if (mediaId.isEmpty()) return null
+    val uri = Song.uriForId(mediaId)
+    if (!trusted.isSong(uri)) return null
+    val art = mediaMetadata.artworkUri?.takeIf { trusted.isArt(it) }
+    return MediaItem.Builder()
+        .setMediaId(mediaId)
+        .setUri(uri)
+        .setMediaMetadata(mediaMetadata.buildUpon().setArtworkUri(art).build())
+        .build()
+}
 
 /** Just enough of a song to play it and show it in the notification. */
 fun songStub(id: String, title: String, artist: String, album: String, albumId: Long = 0): Song = Song(

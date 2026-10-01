@@ -10,6 +10,7 @@ import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.net.Uri
 import android.os.Bundle
+import android.os.Process
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -380,10 +381,32 @@ class PlaybackService : MediaSessionService() {
                 else item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon().setArtworkUri(Uri.parse(art)).build()).build()
             }
         }
-        if (items.isEmpty()) null
-        else SavedQueue(items, pos.getInt("index", 0).coerceIn(0, items.size - 1), pos.getLong("position", 0).coerceAtLeast(0))
+        val kept = keepTrusted(items, pos.getInt("index", 0))
+        if (kept.items.isEmpty()) null
+        else SavedQueue(kept.items, kept.startIndex.coerceIn(0, kept.items.size - 1), if (kept.startMoved) 0 else pos.getLong("position", 0).coerceAtLeast(0))
     } catch (e: Exception) {
         null
+    }
+
+    private class Kept(val items: MutableList<MediaItem>, val startIndex: Int, val startMoved: Boolean)
+
+    /**
+     * Only songs from your library or added folders get into the queue. [startIndex] is moved to
+     * match; if the song it pointed at was dropped, the next kept one starts instead.
+     */
+    private fun keepTrusted(items: List<MediaItem>, startIndex: Int): Kept {
+        val trusted = TrustedUris(this)
+        val kept = ArrayList<MediaItem>(items.size)
+        var start = startIndex
+        var moved = false
+        items.forEachIndexed { i, item ->
+            val safe = item.trustedOrNull(trusted)
+            if (safe != null) kept += safe
+            else if (i < startIndex) start--
+            else if (i == startIndex) moved = true
+        }
+        if (startIndex == C.INDEX_UNSET) return Kept(kept, C.INDEX_UNSET, false)
+        return Kept(kept, start.coerceIn(0, (kept.size - 1).coerceAtLeast(0)), moved)
     }
 
     private fun restoreQueue() {
@@ -403,14 +426,33 @@ class PlaybackService : MediaSessionService() {
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
         ): MediaSession.ConnectionResult {
-            val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
-                .add(SessionCommand(CMD_ENQUEUE, Bundle.EMPTY))
-                .add(SessionCommand(CMD_SLEEP, Bundle.EMPTY))
-                .build()
+            if (isOwnApp(controller)) {
+                val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
+                    .add(SessionCommand(CMD_ENQUEUE, Bundle.EMPTY))
+                    .add(SessionCommand(CMD_SLEEP, Bundle.EMPTY))
+                    .build()
+                return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                    .setAvailableSessionCommands(commands)
+                    .build()
+            }
+            // Headphones, car, watch and lock-screen controls: play, pause, skip and seek.
+            // The phone's own media controls (trusted system apps) may also resume the last queue;
+            // any other app can't change what's queued or use the sleep timer / add-to-queue.
+            val player = if (controller.isTrusted) {
+                MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS
+            } else {
+                MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
+                    .removeAll(Player.COMMAND_SET_MEDIA_ITEM, Player.COMMAND_CHANGE_MEDIA_ITEMS)
+                    .build()
+            }
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                .setAvailableSessionCommands(commands)
+                .setAvailableSessionCommands(MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS)
+                .setAvailablePlayerCommands(player)
                 .build()
         }
+
+        /** The app's own screens and its notification; the uid comes from Android, so it can't be faked. */
+        private fun isOwnApp(controller: MediaSession.ControllerInfo) = controller.uid == Process.myUid()
 
         override fun onCustomCommand(
             session: MediaSession,
@@ -418,8 +460,13 @@ class PlaybackService : MediaSessionService() {
             customCommand: SessionCommand,
             args: Bundle,
         ): ListenableFuture<SessionResult> {
+            if (!isOwnApp(controller)) {
+                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_PERMISSION_DENIED))
+            }
             if (customCommand.customAction == CMD_ENQUEUE) {
-                enqueue(songFromBundle(args).toMediaItem(), args.getBoolean("next"))
+                val item = songFromBundle(args).toMediaItem().trustedOrNull(TrustedUris(this@PlaybackService))
+                    ?: return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_BAD_VALUE))
+                enqueue(item, args.getBoolean("next"))
                 return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
             }
             if (customCommand.customAction == CMD_SLEEP) {
@@ -434,7 +481,22 @@ class PlaybackService : MediaSessionService() {
             controller: MediaSession.ControllerInfo,
             mediaItems: MutableList<MediaItem>,
         ): ListenableFuture<MutableList<MediaItem>> =
-            Futures.immediateFuture(mediaItems.map { it.withPlayableUri() }.toMutableList())
+            Futures.immediateFuture(keepTrusted(mediaItems, C.INDEX_UNSET).items)
+
+        override fun onSetMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: MutableList<MediaItem>,
+            startIndex: Int,
+            startPositionMs: Long,
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val kept = keepTrusted(mediaItems, startIndex)
+            if (kept.items.isEmpty() && mediaItems.isNotEmpty()) {
+                return Futures.immediateFailedFuture(SecurityException("Not songs on this phone"))
+            }
+            val position = if (kept.startMoved) 0 else startPositionMs
+            return Futures.immediateFuture(MediaSession.MediaItemsWithStartPosition(kept.items, kept.startIndex, position))
+        }
 
         /** A headphone/car "play" press after the app was closed picks up the last queue. */
         override fun onPlaybackResumption(
@@ -460,6 +522,7 @@ private class ArtBitmapLoader(context: Context) : BitmapLoader {
     override fun decodeBitmap(data: ByteArray): ListenableFuture<Bitmap> = fallback.decodeBitmap(data)
 
     override fun loadBitmap(uri: Uri): ListenableFuture<Bitmap> = executor.submit(Callable<Bitmap> {
+        if (!TrustedUris(appContext).isArt(uri)) throw IOException("Not artwork from your music: $uri")
         ArtLoader.decode(appContext, uri, 512) ?: throw IOException("No artwork for $uri")
     })
 }

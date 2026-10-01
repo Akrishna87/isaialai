@@ -119,8 +119,11 @@ Requires Android 8.0 or newer.
 GitHub Actions builds it (`.github/workflows/music-player-apk.yml`) on every
 push that touches this folder:
 
-1. **build**: `./gradlew assembleRelease` (needs JDK 17 and the Android SDK).
-2. **smoke-test**: installs the APK on an Android 14 emulator, copies test
+1. **build**: `./gradlew assembleRelease` (needs JDK 17 and the Android SDK),
+   then signs the APK with Isaialai's private key (see [SECURITY.md](SECURITY.md)).
+2. **smoke-test**: first checks the APK installs as an update over a build
+   signed with the old key, and that an APK signed with only the old public
+   key can't replace it. Then installs the APK on an Android 14 emulator, copies test
    songs onto it, and checks that the app lists them (including one Android
    marks as "not music"), plays them, opens the full player, responds to the
    media "next" button and keeps playing in the background. It also browses
@@ -134,11 +137,9 @@ To build locally instead, open this folder in Android Studio, or run
 
 ### About the signing key
 
-`signing/sideload.keystore` (password `mymusic`) is committed on purpose. It
-lets every build install as an update over the last one, which matters for a
-sideloaded app. Since it's public, it doesn't prove who built the APK. Only
-install builds from this repository's releases. If you ever publish the app
-more widely, make a private key and supply it through the `SIGNING_KEYSTORE`,
-`SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS` and `SIGNING_KEY_PASSWORD`
-environment variables (for example from GitHub secrets). `app/build.gradle.kts`
-uses them when they're set.
+Early builds were signed with `signing/sideload.keystore`, a key whose password
+is public, so anyone could have made an APK that installs over Isaialai. Builds
+are now signed with a private key kept encrypted in `signing/release.keystore.gpg`,
+using Android's key rotation so phones with an older build update without
+uninstalling. [SECURITY.md](SECURITY.md) has the details and the one-time setup.
+Only install builds from this repository's releases.
