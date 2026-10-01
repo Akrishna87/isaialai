@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.media.AudioManager
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
+import android.media.audiofx.LoudnessEnhancer
 import android.net.Uri
 import android.os.Bundle
 import android.os.Process
@@ -32,17 +33,24 @@ import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
+import java.util.Locale
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.pow
+import kotlin.math.sin
 import kotlin.random.Random
 
 /**
@@ -79,9 +87,35 @@ class PlaybackService : MediaSessionService() {
     private var bassBoost: BassBoost? = null
     private val effectsPrefs by lazy { Effects.prefs(this) }
     private val effectsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key != Effects.KEY_INFO && key != Effects.KEY_SLEEP_UNTIL && key != Effects.KEY_SLEEP_END_OF_SONG) applyEffects()
+        when (key) {
+            Effects.KEY_EVEN_VOLUME -> updateEvenVolume()
+            Effects.KEY_CROSSFADE -> if (crossfadeMs() == 0L) cancelFade()
+            in Effects.STATUS_KEYS -> Unit
+            else -> applyEffects()
+        }
     }
     private var sleepJob: Job? = null
+    private var audioSession = C.AUDIO_SESSION_ID_UNSET
+
+    // The player's volume is the product of these: even volume (turning loud songs down),
+    // the sleep timer's fade-out, and the outgoing song's side of a crossfade.
+    private var evenVolume = 1f
+    private var sleepFade = 1f
+    private var crossfadeFade = 1f
+    private var loudnessEnhancer: LoudnessEnhancer? = null
+    private var evenVolumeJob: Job? = null
+
+    private fun applyVolume() {
+        player.volume = (evenVolume * sleepFade * crossfadeFade).coerceIn(0f, 1f)
+    }
+
+    // Crossfade: a second player starts the next song early and fades it in while this one fades out.
+    private var fadePlayer: ExoPlayer? = null
+    private var fade: Fade? = null
+    private var handoverJob: Job? = null
+    private class Fade(val toIndex: Int, val toId: String, val lengthMs: Long) {
+        var handingOver = false
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -98,9 +132,14 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         // Give the player a fixed audio session so the equaliser can attach to it.
-        val audioSession = (getSystemService(Context.AUDIO_SERVICE) as AudioManager).generateAudioSessionId()
+        audioSession = (getSystemService(Context.AUDIO_SERVICE) as AudioManager).generateAudioSessionId()
         player.setAudioSessionId(audioSession)
         setUpEffects(audioSession)
+        loudnessEnhancer = try {
+            LoudnessEnhancer(audioSession)
+        } catch (e: Exception) {
+            null
+        }
         activePlayer = player
         effectsPrefs.registerOnSharedPreferenceChangeListener(effectsListener)
         clearSleep() // a timer can't outlive the service that was running it
@@ -128,9 +167,22 @@ class PlaybackService : MediaSessionService() {
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 // "End of this song" sleep timer: the player has just paused at the end of the song.
                 if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) clearSleep()
+                // Pausing mid-crossfade pauses both songs.
+                if (fade?.handingOver == false) fadePlayer?.playWhenReady = playWhenReady
+            }
+
+            override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+                // Seeking during a crossfade calls it off (the handover's own seek doesn't).
+                if (reason == Player.DISCONTINUITY_REASON_SEEK && fade?.handingOver == false) cancelFade()
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                fade?.let { f ->
+                    if (f.handingOver) return@let
+                    if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && player.currentMediaItemIndex == f.toIndex) startHandover(f)
+                    else cancelFade() // skipped, or the queue changed
+                }
+                updateEvenVolume()
                 // A brand-new queue started while shuffle is on: shuffle it starting from the chosen song.
                 if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED && player.shuffleModeEnabled) {
                     shuffleFromCurrent()
@@ -144,6 +196,7 @@ class PlaybackService : MediaSessionService() {
             }
 
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                if (fade?.handingOver == false) cancelFade() // the next song may have changed
                 if (shuffleModeEnabled) shuffleFromCurrent()
                 savePosition()
             }
@@ -169,7 +222,14 @@ class PlaybackService : MediaSessionService() {
         })
 
         restoreQueue()
+        updateEvenVolume()
 
+        scope.launch {
+            while (isActive) {
+                delay(200)
+                crossfadeTick()
+            }
+        }
         scope.launch {
             while (isActive) {
                 delay(10_000)
@@ -194,6 +254,8 @@ class PlaybackService : MediaSessionService() {
         effectsPrefs.unregisterOnSharedPreferenceChangeListener(effectsListener)
         equalizer?.release()
         bassBoost?.release()
+        loudnessEnhancer?.release()
+        fadePlayer?.release()
         scope.cancel()
         session?.release()
         session = null
@@ -277,15 +339,16 @@ class PlaybackService : MediaSessionService() {
                     delay(minutes * 60_000L - 10_000L)
                     // Fade out over ten seconds rather than stopping abruptly.
                     for (step in 20 downTo 0) {
-                        player.volume = step / 20f
+                        sleepFade = step / 20f
+                        applyVolume()
                         delay(500)
                     }
                     player.pause()
-                    player.volume = 1f
                     clearSleep()
                 }
             }
             minutes == -1 -> {
+                cancelFade()
                 player.pauseAtEndOfMediaItems = true
                 effectsPrefs.edit().putLong(Effects.KEY_SLEEP_UNTIL, 0).putBoolean(Effects.KEY_SLEEP_END_OF_SONG, true).apply()
             }
@@ -298,9 +361,161 @@ class PlaybackService : MediaSessionService() {
         sleepJob = null
         if (::player.isInitialized) {
             player.pauseAtEndOfMediaItems = false
-            player.volume = 1f
+            sleepFade = 1f
+            applyVolume()
         }
         effectsPrefs.edit().remove(Effects.KEY_SLEEP_UNTIL).remove(Effects.KEY_SLEEP_END_OF_SONG).apply()
+    }
+
+    // ----- Even volume -----
+
+    private fun evenVolumeOn() = effectsPrefs.getBoolean(Effects.KEY_EVEN_VOLUME, false)
+
+    /** Sets the level for the song now playing: measured once per song, then remembered. */
+    private fun updateEvenVolume() {
+        evenVolumeJob?.cancel()
+        val item = player.currentMediaItem
+        if (!evenVolumeOn() || item == null) {
+            applyGain(null, 0f)
+            return
+        }
+        val id = item.mediaId
+        val title = item.mediaMetadata.title?.toString().orEmpty()
+        val known = Loudness.cached(this, id)
+        if (known != null) applyGain(title, Loudness.gainFor(known))
+        evenVolumeJob = scope.launch {
+            if (known == null) {
+                val level = withContext(Dispatchers.IO) { Loudness.level(this@PlaybackService, id) }
+                if (player.currentMediaItem?.mediaId == id) applyGain(title, level?.let(Loudness::gainFor) ?: 0f)
+            }
+            // Measure the next song now, so it starts at the right level.
+            val next = player.nextMediaItemIndex
+            if (next != C.INDEX_UNSET) {
+                val nextId = player.getMediaItemAt(next).mediaId
+                withContext(Dispatchers.IO) { Loudness.level(this@PlaybackService, nextId) }
+            }
+        }
+    }
+
+    /** Turns down with the player's volume; turns up with the loudness enhancer (which won't clip). */
+    private fun applyGain(title: String?, db: Float) {
+        evenVolume = if (db < 0) 10f.pow(db / 20f) else 1f
+        applyVolume()
+        loudnessEnhancer?.let {
+            try {
+                it.setTargetGain(if (db > 0) (db * 100).toInt() else 0)
+                it.enabled = db > 0
+            } catch (e: Exception) {
+                // effect taken over by another app
+            }
+        }
+        val e = effectsPrefs.edit()
+        if (title == null) e.remove(Effects.KEY_EVEN_VOLUME_NOW)
+        else e.putString(Effects.KEY_EVEN_VOLUME_NOW, "$title|" + String.format(Locale.US, "%.1f", db))
+        e.apply()
+    }
+
+    /** The volume a song should play at for even volume (cuts only; used for the incoming song in a crossfade). */
+    private fun evenVolumeFor(songId: String): Float {
+        if (!evenVolumeOn()) return 1f
+        val db = Loudness.cached(this, songId)?.let(Loudness::gainFor) ?: return 1f
+        return if (db < 0) 10f.pow(db / 20f) else 1f
+    }
+
+    // ----- Crossfade -----
+
+    private fun crossfadeMs(): Long = effectsPrefs.getInt(Effects.KEY_CROSSFADE, 0).coerceIn(0, 12) * 1000L
+
+    private fun crossfadeTick() {
+        val f = fade
+        if (f == null) {
+            val length = crossfadeMs()
+            if (length == 0L || !player.isPlaying || player.pauseAtEndOfMediaItems) return
+            if (player.repeatMode == Player.REPEAT_MODE_ONE) return
+            val duration = player.duration
+            // Not worth it for very short songs.
+            if (duration == C.TIME_UNSET || duration < length * 2 + 2_000) return
+            val remaining = duration - player.currentPosition
+            if (remaining > length || remaining < 600) return
+            val next = player.nextMediaItemIndex
+            if (next == C.INDEX_UNSET) return
+            startFade(next, remaining)
+            return
+        }
+        if (f.handingOver) return
+        val remaining = (player.duration - player.currentPosition).coerceAtLeast(0)
+        val t = (1f - remaining.toFloat() / f.lengthMs).coerceIn(0f, 1f)
+        // Equal-power curves, so the blend doesn't dip in the middle.
+        crossfadeFade = cos(t * PI / 2).toFloat()
+        applyVolume()
+        fadePlayer?.volume = sin(t * PI / 2).toFloat() * evenVolumeFor(f.toId)
+    }
+
+    private fun startFade(next: Int, remaining: Long) {
+        val item = player.getMediaItemAt(next)
+        val fp = fadePlayer ?: ExoPlayer.Builder(this)
+            .setAudioAttributes(
+                AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),
+                /* handleAudioFocus = */ false, // the main player holds focus; this one mustn't take it away
+            )
+            .build()
+            .also {
+                // Same audio session, so the equaliser applies to the incoming song too.
+                it.setAudioSessionId(audioSession)
+                it.addListener(object : Player.Listener {
+                    override fun onPlayerError(error: PlaybackException) = cancelFade()
+                })
+                fadePlayer = it
+            }
+        fp.setMediaItem(item)
+        fp.volume = 0f
+        fp.prepare()
+        fp.play()
+        fade = Fade(next, item.mediaId, remaining.coerceAtLeast(600))
+    }
+
+    /**
+     * The outgoing song has ended and the player moved on to the incoming one (from its start,
+     * silently). Jump it to where the crossfade player has got to, then swap over.
+     */
+    private fun startHandover(f: Fade) {
+        val fp = fadePlayer ?: return cancelFade()
+        f.handingOver = true
+        crossfadeFade = 0f
+        applyVolume()
+        player.seekTo(fp.currentPosition + 100)
+        handoverJob = scope.launch {
+            delay(60)
+            var waited = 0
+            while (waited < 3_000 && !(player.isPlaying && player.playbackState == Player.STATE_READY)) {
+                delay(20)
+                waited += 20
+            }
+            val from = fp.volume
+            for (step in 1..10) {
+                crossfadeFade = step / 10f
+                applyVolume()
+                fp.volume = from * (1f - step / 10f)
+                delay(25)
+            }
+            endFade()
+        }
+    }
+
+    private fun cancelFade() {
+        handoverJob?.cancel()
+        endFade()
+    }
+
+    private fun endFade() {
+        fade = null
+        handoverJob = null
+        fadePlayer?.let {
+            it.stop()
+            it.clearMediaItems()
+        }
+        crossfadeFade = 1f
+        if (::player.isInitialized) applyVolume()
     }
 
     // ----- Speed & pitch -----

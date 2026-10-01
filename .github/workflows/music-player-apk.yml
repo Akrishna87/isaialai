@@ -109,6 +109,9 @@ jobs:
               -metadata composer="CI Composer" \
               "songs/tune$i.mp3"
           done
+          # a much louder song, for even volume
+          ffmpeg -nostdin -loglevel error -f lavfi -i "sine=frequency=500:duration=60" -af volume=7 -c:a libmp3lame \
+            -metadata title="Loud Song" -metadata artist="Loud Band" -metadata album="Loud Album" songs/loud.mp3
           # the same song saved twice (in two folders), for the duplicate finder
           ffmpeg -nostdin -loglevel error -f lavfi -i "sine=frequency=880:duration=45" -c:a libmp3lame \
             -metadata title="Twin Song" -metadata artist="Twin Band" -metadata album="Twin Album" songs/twin.mp3

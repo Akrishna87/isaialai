@@ -80,6 +80,8 @@ adb shell mkdir -p /sdcard/Music/Hidden
 adb shell touch /sdcard/Music/Hidden/.nomedia
 adb push "$SONGS/hidden.mp3" /sdcard/Music/Hidden/ > /dev/null
 adb push "$SONGS/hidden.lrc" /sdcard/Music/Hidden/ > /dev/null
+adb shell mkdir -p /sdcard/Music/LoudTest
+adb push "$SONGS/loud.mp3" /sdcard/Music/LoudTest/ > /dev/null
 # The same song in two folders, for the duplicate finder.
 adb shell mkdir -p /sdcard/Music/TwinA /sdcard/Music/TwinB
 adb push "$SONGS/twin.mp3" /sdcard/Music/TwinA/ > /dev/null
@@ -568,6 +570,76 @@ adb shell ls /sdcard/Music/TwinB/twin.mp3 > /dev/null 2>&1 && fail "the copy was
 adb shell ls /sdcard/Music/TwinA/twin.mp3 > /dev/null 2>&1 || fail "the other copy was deleted too"
 echo "PASS: duplicate finder finds a song saved twice and deletes the extra copy"
 adb shell input keyevent KEYCODE_BACK
+sleep 1
+
+echo "--- Settings: even volume and crossfade"
+open_settings() {
+  dump before-settings
+  tap before-settings "More options"
+  sleep 1
+  dump lib-menu-settings
+  tap lib-menu-settings "Settings"
+  sleep 2
+}
+open_settings
+dump settings
+shot 22-settings
+tap settings "Even volume"
+sleep 1
+tap settings "5 s" # crossfade
+sleep 1
+dump settings-on
+grep -q 'Crossfade: 5 s' "$OUT/settings-on.xml" || fail "choosing a 5 s crossfade didn't stick"
+python3 - "$OUT/settings-on.xml" <<'PY' || fail "the Even volume switch didn't turn on"
+import sys, xml.etree.ElementTree as ET
+nodes = [n for n in ET.parse(sys.argv[1]).iter("node") if n.get("content-desc") == "Even volume"]
+sys.exit(0 if nodes and nodes[0].get("checked") == "true" else 1)
+PY
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+chip "Songs"
+sleep 2
+dump songs-loud
+tap songs-loud "Loud Song"
+sleep 6 # long enough to measure it
+open_settings
+dump settings-loud
+shot 23-even-volume
+grep -q "Loud Song.*turned down" "$OUT/settings-loud.xml" || fail "even volume didn't turn the loud song down"
+echo "PASS: even volume turns a loud song down"
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+
+echo "--- Crossfade into the next song"
+dump before-xfade
+tap before-xfade "Loud Song" last # the mini player
+sleep 2
+dump xfade-player
+read -r X1 Y1 X2 Y2 < <(python3 "$HERE/find_text.py" "$OUT/xfade-player.xml" "Seek bar" bounds) || fail "no seek bar on the full player"
+adb shell input tap $((X1 + (X2 - X1) * 92 / 100)) $(((Y1 + Y2) / 2)) # about 5 s before the end
+sleep 2
+UID_APP=$(adb shell dumpsys package "$PKG" | grep -m1 -o 'userId=[0-9]*' | cut -d= -f2)
+STARTED=$(adb shell dumpsys audio | grep "AudioPlaybackConfiguration" | grep "u/pid:$UID_APP/" | grep -c "state:started" || true)
+echo "Isaialai audio players running during the crossfade: $STARTED"
+shot 24-crossfading
+SEEN=0; MAXPOS=0
+for _ in $(seq 1 40); do
+  session
+  if [ "$(grep -o "description=[^,]*" "$OUT/session.txt" | head -1 | sed 's/description=//')" != "Loud Song" ]; then
+    P=$(grep -o "position=[0-9]*" "$OUT/session.txt" | head -1 | cut -d= -f2)
+    [ "${P:-0}" -gt "$MAXPOS" ] && MAXPOS=$P
+    SEEN=$((SEEN + 1))
+    [ "$SEEN" -ge 6 ] && break
+  fi
+  sleep 0.5
+done
+echo "next song: $(now_playing), picked up at $MAXPOS ms"
+[ "$SEEN" -gt 0 ] || fail "the next song never started after the loud song"
+playing || fail "playback stopped after the crossfade"
+[ "$MAXPOS" -ge 3000 ] || fail "the next song started from the beginning, so it didn't crossfade (picked up at $MAXPOS ms)"
+[ "${STARTED:-0}" -ge 2 ] || echo "(note: couldn't confirm two players from dumpsys audio)"
+echo "PASS: crossfade starts the next song early and blends into it"
+adb shell input keyevent KEYCODE_BACK # close the player
 sleep 1
 
 echo "--- Home-screen widget"

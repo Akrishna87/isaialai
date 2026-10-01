@@ -33,6 +33,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -278,6 +280,7 @@ fun SeekBar(
         modifier
             .fillMaxWidth()
             .height(28.dp)
+            .semantics { contentDescription = "Seek bar" }
             .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
                 detectTapGestures { o -> seek((o.x / size.width).coerceIn(0f, 1f)) }

@@ -41,6 +41,7 @@ sealed interface Screen {
     data class Composer(val name: String) : Screen
     data class Smart(val kind: SmartPlaylist) : Screen
     data object Duplicates : Screen
+    data object Settings : Screen
 }
 
 /** Playlists that fill themselves from what you play. */
@@ -113,11 +114,33 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     /** When the sleep timer stops playback (ms since epoch), or 0. */
     var sleepUntil by mutableLongStateOf(effectsPrefs.getLong(Effects.KEY_SLEEP_UNTIL, 0L)); private set
     var sleepEndOfSong by mutableStateOf(effectsPrefs.getBoolean(Effects.KEY_SLEEP_END_OF_SONG, false)); private set
+    var crossfadeSec by mutableIntStateOf(effectsPrefs.getInt(Effects.KEY_CROSSFADE, 0)); private set
+    var evenVolume by mutableStateOf(effectsPrefs.getBoolean(Effects.KEY_EVEN_VOLUME, false)); private set
+    /** The song playing now and how many dB even volume moved it, while even volume is on. */
+    var evenVolumeNow by mutableStateOf(readEvenVolumeNow()); private set
     private val effectsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { p, _ ->
         eqInfo = Effects.readInfo(p)
         eqSettings = Effects.read(p)
         sleepUntil = p.getLong(Effects.KEY_SLEEP_UNTIL, 0L)
         sleepEndOfSong = p.getBoolean(Effects.KEY_SLEEP_END_OF_SONG, false)
+        crossfadeSec = p.getInt(Effects.KEY_CROSSFADE, 0)
+        evenVolume = p.getBoolean(Effects.KEY_EVEN_VOLUME, false)
+        evenVolumeNow = readEvenVolumeNow()
+    }
+
+    private fun readEvenVolumeNow(): Pair<String, Float>? =
+        effectsPrefs.getString(Effects.KEY_EVEN_VOLUME_NOW, null)?.let { v ->
+            v.substringAfterLast('|').toFloatOrNull()?.let { v.substringBeforeLast('|') to it }
+        }
+
+    fun setCrossfade(seconds: Int) {
+        crossfadeSec = seconds.coerceIn(0, 12)
+        effectsPrefs.edit().putInt(Effects.KEY_CROSSFADE, crossfadeSec).apply()
+    }
+
+    fun setEvenVolumeOn(on: Boolean) {
+        evenVolume = on
+        effectsPrefs.edit().putBoolean(Effects.KEY_EVEN_VOLUME, on).apply()
     }
 
     // ----- Player mirror -----

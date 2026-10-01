@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
@@ -86,6 +87,9 @@ fun HomeScreen(vm: MusicViewModel) {
                 }
                 IconButton(onClick = { vm.refreshLibrary(announce = true) }) {
                     Icon(Icons.Rounded.Refresh, contentDescription = "Rescan phone for music")
+                }
+                IconButton(onClick = { vm.open(Screen.Settings) }) {
+                    Icon(Icons.Rounded.Settings, contentDescription = "Settings")
                 }
             }
         }

@@ -19,6 +19,16 @@ object Effects {
     const val KEY_SLEEP_UNTIL = "sleep_until"
     const val KEY_SLEEP_END_OF_SONG = "sleep_end_of_song"
 
+    /** Crossfade length in seconds, 0 (off) to 12. */
+    const val KEY_CROSSFADE = "crossfade_sec"
+    /** Even volume (loudness levelling) on or off. */
+    const val KEY_EVEN_VOLUME = "even_volume"
+    /** Written by the service: "<title>|<dB>" for the song playing now, while even volume is on. */
+    const val KEY_EVEN_VOLUME_NOW = "even_volume_now"
+
+    /** Keys the service writes for the screens to show, rather than settings it should act on. */
+    val STATUS_KEYS = setOf(KEY_INFO, KEY_SLEEP_UNTIL, KEY_SLEEP_END_OF_SONG, KEY_EVEN_VOLUME_NOW)
+
     /** What this phone's equaliser can do, written by the service once it has created the effect. */
     data class EqInfo(
         val available: Boolean,

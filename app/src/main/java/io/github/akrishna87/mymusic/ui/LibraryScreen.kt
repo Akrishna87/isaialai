@@ -69,6 +69,11 @@ fun LibraryScreen(vm: MusicViewModel) {
                         leadingIcon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null, tint = Palette.SubText) },
                         onClick = { menu = false; vm.open(Screen.Duplicates) },
                     )
+                    DropdownMenuItem(
+                        text = { Text("Settings") },
+                        leadingIcon = { Icon(Icons.Rounded.Settings, contentDescription = null, tint = Palette.SubText) },
+                        onClick = { menu = false; vm.open(Screen.Settings) },
+                    )
                 }
             }
         }
