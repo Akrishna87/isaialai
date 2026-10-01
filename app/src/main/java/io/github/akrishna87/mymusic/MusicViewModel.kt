@@ -40,6 +40,10 @@ sealed interface Screen {
     data class PlaylistDetail(val id: String) : Screen
 }
 
+enum class Section { HOME, SEARCH, LIBRARY }
+
+enum class LibraryChip(val label: String) { SONGS("Songs"), ALBUMS("Albums"), ARTISTS("Artists"), FOLDERS("Folders"), PLAYLISTS("Playlists") }
+
 /** A pending "name this playlist" prompt. */
 data class NameRequest(val title: String, val initial: String, val onSave: (String) -> Unit)
 
@@ -60,8 +64,12 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     // ----- Navigation & UI -----
     val screens = mutableStateListOf<Screen>()
     var showPlayer by mutableStateOf(false)
-    var tab by mutableIntStateOf(prefs.getInt("tab", 0))
+    var section by mutableStateOf(Section.HOME); private set
+    var libraryChip by mutableStateOf(LibraryChip.entries.getOrElse(prefs.getInt("chip", 0)) { LibraryChip.SONGS }); private set
+    /** What's typed on the Search screen. */
     var query by mutableStateOf("")
+    /** Where the current queue came from, shown at the top of the full player. */
+    var playingFrom by mutableStateOf("Your library"); private set
     var sort by mutableStateOf(SongSort.entries.getOrElse(prefs.getInt("sort", 0)) { SongSort.TITLE })
     var playlistPickerFor by mutableStateOf<Song?>(null)
     var nameRequest by mutableStateOf<NameRequest?>(null)
@@ -69,6 +77,13 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     val messages = messageChannel.receiveAsFlow()
 
     val playlists = PlaylistStore(app)
+
+    // ----- Listening history (for Home) -----
+    /** Song ids, most recently played first. */
+    var history by mutableStateOf(loadHistory()); private set
+    private val playCounts: MutableMap<String, Int> = loadCounts()
+    var countsVersion by mutableIntStateOf(0); private set
+    private var lastRecorded: String? = null
 
     // ----- Player mirror -----
     var currentId by mutableStateOf<String?>(null); private set
@@ -218,9 +233,16 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         messageChannel.trySend(text)
     }
 
-    fun saveTab(i: Int) {
-        tab = i
-        prefs.edit().putInt("tab", i).apply()
+    fun selectSection(s: Section) {
+        showPlayer = false
+        // Tapping the section you're already in goes back to its start, like other music apps.
+        if (s != section || screens.isNotEmpty()) screens.clear()
+        section = s
+    }
+
+    fun selectChip(c: LibraryChip) {
+        libraryChip = c
+        prefs.edit().putInt("chip", c.ordinal).apply()
     }
 
     fun saveSort(s: SongSort) {
@@ -263,11 +285,56 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         upNext = next
+
+        // Count a song as played once it starts playing.
+        val id = currentId
+        if (id != null && id != lastRecorded && c.playWhenReady) {
+            lastRecorded = id
+            recordPlay(id)
+        }
     }
 
-    fun play(list: List<Song>, start: Int, shuffled: Boolean = false) {
+    // ----- History -----
+
+    private fun loadHistory(): List<String> = try {
+        val arr = org.json.JSONArray(prefs.getString("history", "[]"))
+        List(arr.length()) { arr.getString(it) }
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    private fun loadCounts(): MutableMap<String, Int> = try {
+        val o = org.json.JSONObject(prefs.getString("counts", "{}") ?: "{}")
+        o.keys().asSequence().associateWithTo(HashMap<String, Int>()) { o.getInt(it) }
+    } catch (e: Exception) {
+        HashMap()
+    }
+
+    private fun recordPlay(id: String) {
+        history = (listOf(id) + history.filter { it != id }).take(100)
+        playCounts[id] = (playCounts[id] ?: 0) + 1
+        countsVersion++
+        prefs.edit()
+            .putString("history", org.json.JSONArray(history).toString())
+            .putString("counts", org.json.JSONObject(playCounts as Map<*, *>).toString())
+            .apply()
+    }
+
+    fun playCount(id: String): Int = playCounts[id] ?: 0
+
+    // ----- Likes -----
+
+    fun isLiked(song: Song?): Boolean = song != null && playlists.isLiked(song.id)
+
+    fun toggleLike(song: Song) {
+        val liked = playlists.toggleLike(song.id)
+        messageChannel.trySend(if (liked) "Added to Liked songs" else "Removed from Liked songs")
+    }
+
+    fun play(list: List<Song>, start: Int, shuffled: Boolean = false, from: String = "Your library") {
         val c = controller ?: return
         if (list.isEmpty()) return
+        playingFrom = from
         if (shuffled) c.shuffleModeEnabled = true
         val startIndex = if (shuffled) Random.nextInt(list.size) else start.coerceIn(0, list.size - 1)
         c.setMediaItems(list.map { it.toMediaItem() }, startIndex, 0L)
