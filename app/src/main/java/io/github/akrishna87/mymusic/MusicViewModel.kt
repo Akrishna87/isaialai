@@ -390,6 +390,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleShuffle() {
         val c = controller ?: return
         c.shuffleModeEnabled = !c.shuffleModeEnabled
+        messageChannel.trySend(if (c.shuffleModeEnabled) "Shuffle on" else "Shuffle off")
     }
 
     fun cycleRepeat() {
@@ -399,6 +400,13 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
             Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
             else -> Player.REPEAT_MODE_OFF
         }
+        messageChannel.trySend(
+            when (c.repeatMode) {
+                Player.REPEAT_MODE_ALL -> "Repeating all songs"
+                Player.REPEAT_MODE_ONE -> "Repeating this song"
+                else -> "Repeat off"
+            }
+        )
     }
 
     // ----- Equaliser -----

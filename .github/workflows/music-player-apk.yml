@@ -56,6 +56,12 @@ jobs:
               -metadata title="Smoke Song $i" -metadata artist="CI Band" -metadata album="CI Album" -metadata track=$i \
               "songs/song$i.mp3"
           done
+          # a 12-song album for the shuffle test
+          for i in $(seq -w 1 12); do
+            ffmpeg -loglevel error -f lavfi -i "sine=frequency=$((200 + 10#$i * 40)):duration=60" -c:a libmp3lame \
+              -metadata title="Tune $i" -metadata artist="Shuffle Band" -metadata album="Shuffle Album" -metadata track=$((10#$i)) \
+              "songs/tune$i.mp3"
+          done
           # Android marks songs in a Podcasts folder as "not music"
           ffmpeg -loglevel error -f lavfi -i "sine=frequency=660:duration=60" -c:a libmp3lame \
             -metadata title="Smoke Podcast Song" -metadata artist="CI Band" -metadata album="CI Extras" songs/podcast.mp3

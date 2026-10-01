@@ -42,6 +42,7 @@ tap() { # tap <dump name> <text> [first|last]
   adb shell input tap $xy
 }
 session() { adb shell dumpsys media_session > "$OUT/session.txt"; }
+now_playing() { session; grep -o "description=[^,]*" "$OUT/session.txt" | head -1 | sed 's/description=//'; }
 scroll_down() { # swipe up on the middle of the screen
   local size w h
   size=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1)
@@ -57,6 +58,9 @@ adb install -r "$APK"
 echo "--- Copying test songs onto the emulator"
 adb shell mkdir -p /sdcard/Music/SmokeTest
 for f in "$SONGS"/song*.mp3; do adb push "$f" /sdcard/Music/SmokeTest/ > /dev/null; done
+# A 12-song album for the shuffle test: big enough that a shuffled order can't look in order by chance.
+adb shell mkdir -p /sdcard/Music/ShuffleTest
+for f in "$SONGS"/tune*.mp3; do adb push "$f" /sdcard/Music/ShuffleTest/ > /dev/null; done
 adb shell mkdir -p /sdcard/Podcasts
 adb push "$SONGS/podcast.mp3" /sdcard/Podcasts/ > /dev/null
 # A folder Android's media library ignores, like Telegram's.
@@ -305,6 +309,95 @@ dump liked
 shot 14-liked
 grep -q "Smoke Song 1" "$OUT/liked.xml" || fail "the liked song isn't in Liked songs"
 echo "PASS: liking a song adds it to Liked songs"
+
+echo "--- Shuffle (bug report: 'shuffle is not working')"
+dump before-shuffle
+tap before-shuffle "Library"
+sleep 2
+dump lib-shuffle
+tap lib-shuffle "Albums"
+sleep 2
+dump albums-shuffle
+if ! grep -q 'text="Shuffle Album"' "$OUT/albums-shuffle.xml"; then scroll_down; dump albums-shuffle; fi
+tap albums-shuffle "Shuffle Album"
+sleep 3
+dump shuffle-album
+tap shuffle-album "Shuffle" # the album page's shuffle button
+sleep 4
+playing || fail "shuffling the album didn't start playback"
+CUR=$(now_playing)
+echo "shuffle started on: $CUR"
+case "$CUR" in Tune*) ;; *) fail "shuffle didn't play from the album (playing: $CUR)";; esac
+dump shuffle-playing
+tap shuffle-playing "$CUR" last # open the full player from the mini player
+sleep 2
+dump shuffle-player
+grep -q 'content-desc="Shuffle on"' "$OUT/shuffle-player.xml" || fail "the player doesn't show shuffle as on"
+tap shuffle-player "Show up next"
+sleep 2
+dump queue-shuffled
+shot 15-shuffle-up-next
+python3 "$HERE/up_next.py" "$OUT/queue-shuffled.xml" "$CUR" > "$OUT/queue-shuffled.txt" || fail "couldn't read Up next"
+echo "Up next (shuffled):"; cat "$OUT/queue-shuffled.txt"
+N=$(wc -l < "$OUT/queue-shuffled.txt")
+[ "$N" -ge 4 ] || fail "Up next shows only $N songs after shuffling a 12-song album"
+# In album order, the songs after "Tune 07" would be Tune 08, Tune 09, …
+num=${CUR#Tune }; num=$((10#$num))
+python3 - "$OUT/queue-shuffled.txt" "$num" <<'PY' || fail "Up next is still in album order with shuffle on"
+import sys
+shown = [l.strip() for l in open(sys.argv[1]) if l.strip()]
+cur = int(sys.argv[2])
+in_order = ["Tune %02d" % k for k in range(cur + 1, 13)]
+sys.exit(1 if shown == in_order[:len(shown)] else 0)
+PY
+echo "PASS: shuffle puts the album in a random order"
+
+# Skipping must follow the order Up next shows.
+for i in 1 2 3; do
+  want=$(sed -n "${i}p" "$OUT/queue-shuffled.txt")
+  adb shell input keyevent KEYCODE_MEDIA_NEXT
+  sleep 3
+  got=$(now_playing)
+  [ "$got" = "$want" ] || fail "skip $i played '$got' but Up next said '$want'"
+done
+echo "PASS: skipping follows the shuffled order"
+
+CUR=$(now_playing)
+num=${CUR#Tune }; num=$((10#$num))
+dump before-shuffle-off
+tap before-shuffle-off "Shuffle on" # turn shuffle off
+sleep 2
+dump queue-unshuffled
+grep -q 'content-desc="Shuffle off"' "$OUT/queue-unshuffled.xml" || fail "the shuffle button didn't switch off"
+python3 "$HERE/up_next.py" "$OUT/queue-unshuffled.xml" "$CUR" > "$OUT/queue-unshuffled.txt" || true
+echo "Up next (shuffle off, playing $CUR):"; cat "$OUT/queue-unshuffled.txt"
+python3 - "$OUT/queue-unshuffled.txt" "$num" <<'PY' || fail "with shuffle off, Up next isn't the album order after the current song"
+import sys
+shown = [l.strip() for l in open(sys.argv[1]) if l.strip()]
+cur = int(sys.argv[2])
+in_order = ["Tune %02d" % k for k in range(cur + 1, 13)]
+sys.exit(0 if shown == in_order[:len(shown)] and (shown or cur == 12) else 1)
+PY
+echo "PASS: turning shuffle off goes back to album order"
+
+tap queue-unshuffled "Shuffle off" # and back on
+sleep 2
+dump queue-reshuffled
+shot 16-shuffle-back-on
+grep -q 'content-desc="Shuffle on"' "$OUT/queue-reshuffled.xml" || fail "the shuffle button didn't switch back on"
+[ "$(now_playing)" = "$CUR" ] || fail "turning shuffle on changed the song that was playing"
+python3 "$HERE/up_next.py" "$OUT/queue-reshuffled.xml" "$CUR" > "$OUT/queue-reshuffled.txt" || true
+echo "Up next (shuffle back on):"; cat "$OUT/queue-reshuffled.txt"
+python3 - "$OUT/queue-reshuffled.txt" "$num" <<'PY' || fail "turning shuffle back on didn't reshuffle Up next"
+import sys
+shown = [l.strip() for l in open(sys.argv[1]) if l.strip()]
+cur = int(sys.argv[2])
+in_order = ["Tune %02d" % k for k in range(cur + 1, 13)]
+sys.exit(0 if len(shown) >= 4 and shown != in_order[:len(shown)] else 1)
+PY
+echo "PASS: turning shuffle back on reshuffles, keeping the current song"
+adb shell input keyevent KEYCODE_BACK # close the player
+sleep 1
 
 echo "--- Home-screen widget"
 adb shell dumpsys appwidget | grep -q "mymusic.PlayerWidget" || fail "the home-screen widget isn't registered with the launcher"

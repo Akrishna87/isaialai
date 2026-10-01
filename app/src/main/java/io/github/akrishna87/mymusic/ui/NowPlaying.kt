@@ -30,6 +30,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -188,14 +189,7 @@ fun NowPlaying(vm: MusicViewModel) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = vm::toggleShuffle) {
-                    Icon(
-                        Icons.Rounded.Shuffle,
-                        if (vm.shuffle) "Shuffle on" else "Shuffle off",
-                        tint = if (vm.shuffle) MaterialTheme.colorScheme.primary else Color.White,
-                        modifier = Modifier.size(26.dp),
-                    )
-                }
+                ToggleButton(Icons.Rounded.Shuffle, if (vm.shuffle) "Shuffle on" else "Shuffle off", on = vm.shuffle, onClick = vm::toggleShuffle)
                 IconButton(onClick = { vm.previous() }, modifier = Modifier.size(64.dp)) {
                     Icon(Icons.Rounded.SkipPrevious, "Previous song", modifier = Modifier.size(46.dp))
                 }
@@ -211,19 +205,12 @@ fun NowPlaying(vm: MusicViewModel) {
                 IconButton(onClick = { vm.next() }, modifier = Modifier.size(64.dp)) {
                     Icon(Icons.Rounded.SkipNext, "Next song", modifier = Modifier.size(46.dp))
                 }
-                IconButton(onClick = vm::cycleRepeat) {
-                    val (icon, label) = when (vm.repeatMode) {
-                        Player.REPEAT_MODE_ONE -> Icons.Rounded.RepeatOne to "Repeating this song"
-                        Player.REPEAT_MODE_ALL -> Icons.Rounded.Repeat to "Repeating all"
-                        else -> Icons.Rounded.Repeat to "Repeat off"
-                    }
-                    Icon(
-                        icon,
-                        label,
-                        tint = if (vm.repeatMode == Player.REPEAT_MODE_OFF) Color.White else MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(26.dp),
-                    )
+                val (repeatIcon, repeatLabel) = when (vm.repeatMode) {
+                    Player.REPEAT_MODE_ONE -> Icons.Rounded.RepeatOne to "Repeating this song"
+                    Player.REPEAT_MODE_ALL -> Icons.Rounded.Repeat to "Repeating all"
+                    else -> Icons.Rounded.Repeat to "Repeat off"
                 }
+                ToggleButton(repeatIcon, repeatLabel, on = vm.repeatMode != Player.REPEAT_MODE_OFF, onClick = vm::cycleRepeat)
             }
 
             Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -247,6 +234,29 @@ fun NowPlaying(vm: MusicViewModel) {
         }
     }
     if (sleepDialog) SleepTimerDialog(vm) { sleepDialog = false }
+}
+
+/**
+ * Shuffle / repeat: clearly bright with a dot underneath when on, dimmed when off.
+ * (A coloured icon alone disappears against covers of the same colour.)
+ */
+@Composable
+private fun ToggleButton(icon: ImageVector, description: String, on: Boolean, onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.size(52.dp)) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(icon, description, tint = if (on) Color.White else Color.White.copy(alpha = 0.5f), modifier = Modifier.size(26.dp))
+            if (on) {
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .offset(y = 12.dp)
+                        .size(5.dp)
+                        .clip(CircleShape)
+                        .background(Color.White),
+                )
+            }
+        }
+    }
 }
 
 @Composable
