@@ -121,7 +121,7 @@ fun DetailScreen(vm: MusicViewModel, screen: Screen) {
     val color = if (detail?.kind == DetailKind.LIKED) Palette.Violet else artColor
     val listState = rememberLazyListState()
     val scrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 500 } }
-    val barColor by animateColorAsState(if (scrolled) color.deep(0.55f) else Color.Transparent, label = "bar")
+    val barColor by animateColorAsState(if (scrolled) color.wash(0.55f) else Color.Transparent, label = "bar")
 
     Box(Modifier.fillMaxSize().background(Palette.Background)) {
         if (detail == null) {
@@ -184,7 +184,7 @@ private fun Hero(vm: MusicViewModel, detail: DetailData, color: Color) {
     Column(
         Modifier
             .fillMaxWidth()
-            .background(Brush.verticalGradient(listOf(color.deep(0.2f), color.deep(0.75f), Palette.Background)))
+            .background(Brush.verticalGradient(listOf(color.wash(0.2f), color.wash(0.75f), Palette.Background)))
             .statusBarsPadding()
             .padding(start = 20.dp, end = 20.dp, top = 64.dp, bottom = 8.dp),
     ) {

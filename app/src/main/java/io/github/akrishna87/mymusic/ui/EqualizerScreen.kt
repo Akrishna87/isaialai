@@ -61,7 +61,7 @@ fun EqualizerScreen(vm: MusicViewModel) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Palette.Violet.deep(0.45f), Palette.Background, Palette.Background)))
+            .background(Brush.verticalGradient(listOf(Palette.Violet.wash(0.45f), Palette.Background, Palette.Background)))
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
     ) {
         Column(
@@ -179,7 +179,7 @@ private fun PresetChip(name: String, selected: Boolean, enabled: Boolean, onClic
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 9.dp),
     ) {
-        Text(name, color = if (selected && enabled) Color.Black else Palette.Text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+        Text(name, color = if (selected && enabled) Palette.OnAccent else Palette.Text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
     }
 }
 
@@ -230,9 +230,9 @@ private fun EqCurve(
         fun y(level: Int) = pad + (max - level).toFloat() / span * (size.height - 2 * pad)
 
         // Zero line and band guides.
-        drawLine(Color.White.copy(alpha = 0.12f), Offset(0f, y(0)), Offset(size.width, y(0)), strokeWidth = 1.dp.toPx())
+        drawLine(Palette.Text.copy(alpha = 0.12f), Offset(0f, y(0)), Offset(size.width, y(0)), strokeWidth = 1.dp.toPx())
         for (i in 0 until n) {
-            drawLine(Color.White.copy(alpha = 0.08f), Offset(x(i), pad), Offset(x(i), size.height - pad), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
+            drawLine(Palette.Text.copy(alpha = 0.08f), Offset(x(i), pad), Offset(x(i), size.height - pad), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
         }
         if (levels.isEmpty()) return@Canvas
 

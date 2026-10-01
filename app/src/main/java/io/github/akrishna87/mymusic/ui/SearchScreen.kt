@@ -65,8 +65,8 @@ fun SearchScreen(vm: MusicViewModel) {
             keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
             shape = RoundedCornerShape(8.dp),
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = Color.White,
-                unfocusedContainerColor = Color.White,
+                focusedContainerColor = Palette.Field,
+                unfocusedContainerColor = Palette.Field,
                 focusedTextColor = Color.Black,
                 unfocusedTextColor = Color.Black,
                 cursorColor = Color.Black,

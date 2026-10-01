@@ -73,7 +73,7 @@ fun HomeScreen(vm: MusicViewModel) {
     LazyColumn(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(tint.deep(0.55f), Palette.Background), endY = 1100f)),
+            .background(Brush.verticalGradient(listOf(tint.wash(0.55f), Palette.Background), endY = 1100f)),
         contentPadding = PaddingValues(bottom = LocalBottomSpace.current),
     ) {
         item {

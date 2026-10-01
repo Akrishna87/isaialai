@@ -1,5 +1,6 @@
 package io.github.akrishna87.mymusic.ui
 
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -18,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -44,6 +46,8 @@ fun SettingsScreen(vm: MusicViewModel) {
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = LocalBottomSpace.current),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            item { SettingsHeading("Appearance") }
+            item { AppearanceCard() }
             item { SettingsHeading("Playback") }
             item { CrossfadeCard(vm) }
             item { EvenVolumeCard(vm) }
@@ -66,6 +70,39 @@ fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
         content = content,
     )
+}
+
+@Composable
+private fun AppearanceCard() {
+    val context = LocalContext.current
+    SettingsCard {
+        Text("Theme", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            ThemeMode.entries.forEach { mode ->
+                FilterChip(
+                    selected = ThemeSettings.mode == mode,
+                    onClick = { ThemeSettings.update(context, mode = mode) },
+                    label = { Text(mode.label) },
+                )
+            }
+        }
+        Text("The full player always stays dark, tinted by the song's cover.", color = Palette.SubText, fontSize = 13.sp)
+        if (Build.VERSION.SDK_INT >= 31) {
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Colours from your wallpaper", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    Text("Use your phone's Material You colours for buttons and highlights.", color = Palette.SubText, fontSize = 13.sp)
+                }
+                Spacer(Modifier.width(12.dp))
+                Switch(
+                    checked = ThemeSettings.wallpaperColors,
+                    onCheckedChange = { ThemeSettings.update(context, wallpaperColors = it) },
+                    modifier = Modifier.semantics { contentDescription = "Colours from your wallpaper" },
+                )
+            }
+        }
+    }
 }
 
 @Composable

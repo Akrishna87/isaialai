@@ -77,6 +77,10 @@ old one and keeps your playlists.
   key up or down by up to 6 semitones (handy for singing along) without
   changing the speed. Both stay until you tap Reset.
 - **Settings** (gear on Home, or Library ⋮ → Settings):
+  - **Appearance**: Dark, Light, or Match phone. On Android 12 and later,
+    **Colours from your wallpaper** uses your phone's Material You colours for
+    buttons and highlights. The full player always stays dark, tinted by the
+    cover.
   - **Crossfade**: blend each song into the next over 1–12 seconds, with no
     silence in between. The next song starts early on a second player and
     fades in while the current one fades out. The equaliser applies to both.
@@ -86,6 +90,10 @@ old one and keeps your playlists.
     seconds from eight places across it) and remembered. Turning up uses
     Android's loudness enhancer, which keeps loud parts from distorting.
     Settings shows how much the current song was changed.
+- **Edit song details**: a song's ⋮ menu → **Edit song details…** to fix
+  its title, artist, album or movie, music director or year. Edits are kept
+  in Isaialai (the song file isn't changed, so other apps still see the
+  original), and **Undo my changes** puts the file's details back.
 - **Swipe gestures**:
   - On the mini player: swipe left for the next song, right for the previous one.
   - On the full player: swipe the cover to change song, and swipe down to close.

@@ -96,6 +96,13 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
     val playlists = PlaylistStore(app)
 
+    /** Song details corrected in the app; see [SongEdits]. */
+    private val edits = SongEdits(app)
+    /** The song whose details are being edited, if the edit dialog is open. */
+    var editing by mutableStateOf<Song?>(null)
+    /** The library as read from the phone, before edits are applied. */
+    private var rawSongs: List<Song> = emptyList()
+
     // ----- Listening history (for Home) -----
     /** Song ids, most recently played first. */
     var history by mutableStateOf(loadHistory()); private set
@@ -229,8 +236,10 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun publish(list: List<Song>) {
-        songs = list
-        songsById = list.associateBy { it.id }
+        rawSongs = list
+        val edited = list.map(edits::apply)
+        songs = edited
+        songsById = edited.associateBy { it.id }
         loading = false
         syncFromPlayer()
     }
@@ -488,6 +497,21 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     fun setSpeedAndPitch(newSpeed: Float, newPitch: Float) {
         val c = controller ?: return
         c.playbackParameters = androidx.media3.common.PlaybackParameters(newSpeed.coerceIn(0.5f, 2f), newPitch.coerceIn(0.5f, 2f))
+    }
+
+    fun isEdited(song: Song) = edits.isEdited(song.id)
+
+    /** Saves corrected details for [song] (null [edit] undoes them) and updates the queue to match. */
+    fun saveEdit(song: Song, edit: SongEdits.Edit?) {
+        if (edit == null) edits.clear(song.id) else edits.set(song.id, edit)
+        publish(rawSongs)
+        val updated = songsById[song.id] ?: return
+        controller?.let { c ->
+            for (i in 0 until c.mediaItemCount) {
+                if (c.getMediaItemAt(i).mediaId == song.id) c.replaceMediaItem(i, updated.toMediaItem())
+            }
+        }
+        messageChannel.trySend(if (edit == null) "Back to the details in the file" else "Saved")
     }
 
     suspend fun loadLyrics(song: Song): Lyrics? = withContext(Dispatchers.IO) {

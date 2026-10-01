@@ -97,7 +97,7 @@ fun LibraryScreen(vm: MusicViewModel) {
                         containerColor = Palette.Elevated2,
                         labelColor = Palette.Text,
                         selectedContainerColor = Palette.Coral,
-                        selectedLabelColor = Color.Black,
+                        selectedLabelColor = Palette.OnAccent,
                     ),
                 )
             }
@@ -362,7 +362,7 @@ private fun AddFolderCard(vm: MusicViewModel) {
                 IconButton(onClick = { vm.removeFolder(uri) }) { Icon(Icons.Rounded.Close, "Stop reading $path", tint = Palette.SubText) }
             }
         }
-        Button(onClick = pickFolder, shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)) {
+        Button(onClick = pickFolder, shape = CircleShape, colors = ButtonDefaults.buttonColors(containerColor = Palette.Text, contentColor = Palette.Background)) {
             Icon(Icons.Rounded.CreateNewFolder, contentDescription = null)
             Spacer(Modifier.width(8.dp))
             Text("Add a folder", fontWeight = FontWeight.Bold)

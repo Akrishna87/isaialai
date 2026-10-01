@@ -51,6 +51,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import io.github.akrishna87.mymusic.MusicViewModel
 import io.github.akrishna87.mymusic.Screen
 import io.github.akrishna87.mymusic.R
@@ -96,7 +99,7 @@ private fun PermissionScreen(denied: Boolean, onAsk: () -> Unit, onSettings: () 
     Box(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Palette.Violet.deep(0.35f), Palette.Background, Palette.Background))),
+            .background(Brush.verticalGradient(listOf(Palette.Violet.wash(0.35f), Palette.Background, Palette.Background))),
     ) {
         Column(
             Modifier.fillMaxSize().systemBarsPadding().padding(32.dp),
@@ -150,6 +153,14 @@ fun AppArt(modifier: Modifier = Modifier) {
 @Composable
 private fun Shell(vm: MusicViewModel) {
     val snackbar = remember { SnackbarHostState() }
+    // Status-bar icons: light over dark screens (and the always-dark player), dark over light ones.
+    val activity = LocalContext.current as? ComponentActivity
+    val darkBars = Palette.isDark || (vm.showPlayer && vm.currentId != null)
+    LaunchedEffect(darkBars) {
+        val style = if (darkBars) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+        activity?.enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+    }
     LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
     BackHandler(enabled = vm.showEqualizer || vm.showPlayer || vm.screens.isNotEmpty() || vm.section != Section.HOME) {
         if (!vm.back()) vm.selectSection(Section.HOME)
@@ -207,6 +218,7 @@ private fun Shell(vm: MusicViewModel) {
 
     vm.playlistPickerFor?.let { PlaylistPickerDialog(vm, it) }
     vm.nameRequest?.let { req -> NameDialog(req) { vm.nameRequest = null } }
+    vm.editing?.let { song -> EditSongDialog(vm, song) { vm.editing = null } }
 }
 
 @Composable
@@ -261,12 +273,7 @@ private fun MiniPlayer(vm: MusicViewModel) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .graphicsLayer {
-                    translationX = swipeX * 0.5f
-                    alpha = 1f - (abs(swipeX) / 900f).coerceAtMost(0.5f)
-                }
-                .clip(RoundedCornerShape(10.dp))
-                .background(color.deep(0.5f))
+                // Detected before the layer that slides the card, so the finger is measured against the screen.
                 .pointerInput(Unit) {
                     detectHorizontalDragGestures(
                         onDragEnd = {
@@ -280,6 +287,12 @@ private fun MiniPlayer(vm: MusicViewModel) {
                         swipeX += dx
                     }
                 }
+                .graphicsLayer {
+                    translationX = swipeX * 0.5f
+                    alpha = 1f - (abs(swipeX) / 900f).coerceAtMost(0.5f)
+                }
+                .clip(RoundedCornerShape(10.dp))
+                .background(color.deep(0.5f))
                 .clickable { vm.showPlayer = true },
         ) {
             Row(
@@ -289,7 +302,7 @@ private fun MiniPlayer(vm: MusicViewModel) {
             ) {
                 ArtImage(song, Modifier.size(44.dp), shape = RoundedCornerShape(6.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(song?.title ?: vm.currentTitle, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
+                    Text(song?.title ?: vm.currentTitle, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
                     Text(song?.artist ?: vm.currentArtist, color = Color.White.copy(alpha = 0.72f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
                 }
                 if (song != null) {

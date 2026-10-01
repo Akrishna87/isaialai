@@ -44,6 +44,10 @@ fun Song.colorKey(): String = albumKey.ifEmpty { title }
 /** A darker shade for backgrounds, keeping white text readable. */
 fun Color.deep(amount: Float = 0.45f): Color = lerp(this, Color.Black, amount)
 
+/** A tint for page backgrounds: darker in the dark theme, a pale wash in the light one, so text stays readable. */
+fun Color.wash(amount: Float = 0.45f): Color =
+    if (Palette.isDark) lerp(this, Palette.Background, amount) else lerp(this, Palette.Background, 0.55f + amount * 0.45f)
+
 /** Picks a lively colour out of each song's cover art (cached). */
 object ArtColors {
     private val cache = LruCache<String, Int>(400)

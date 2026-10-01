@@ -642,6 +642,62 @@ echo "PASS: crossfade starts the next song early and blends into it"
 adb shell input keyevent KEYCODE_BACK # close the player
 sleep 1
 
+echo "--- Editing song details"
+chip "Songs"
+sleep 2
+dump songs-edit
+tap songs-edit "More options for Smoke Podcast Song"
+sleep 1
+dump song-menu-edit
+tap song-menu-edit "Edit song details"
+sleep 2
+dump edit-dialog
+shot 25-edit-song
+tap edit-dialog "Title"
+sleep 1
+tap edit-dialog "Clear Title"
+sleep 1
+adb shell input text "Edited%sTitle"
+sleep 1
+if adb shell dumpsys input_method | grep -q "mInputShown=true"; then adb shell input keyevent KEYCODE_BACK; sleep 1; fi
+dump edit-typed
+tap edit-typed "Save"
+sleep 2
+dump songs-edited
+shot 26-song-edited
+grep -q 'text="Edited Title"' "$OUT/songs-edited.xml" || fail "the edited title isn't shown in the song list"
+grep -q 'text="Smoke Podcast Song"' "$OUT/songs-edited.xml" && fail "the old title is still shown after editing"
+echo "PASS: song details can be edited"
+
+echo "--- Light theme"
+open_settings
+dump theme-settings
+tap theme-settings "Light"
+sleep 2
+shot 27-light-settings
+B=$(adb exec-out screencap | python3 "$HERE/brightness.py")
+echo "background brightness in the light theme: $B"
+[ "$B" -ge 200 ] || fail "choosing Light didn't make the app light (brightness $B)"
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+dump home-light
+tap home-light "Home"
+sleep 2
+shot 28-light-home
+dump light-home
+grep -q 'text="Shuffle all"' "$OUT/light-home.xml" || fail "Home doesn't show in the light theme"
+open_settings_from_home() { dump home-gear; tap home-gear "Settings"; sleep 2; }
+open_settings_from_home
+dump theme-settings2
+tap theme-settings2 "Dark"
+sleep 2
+B=$(adb exec-out screencap | python3 "$HERE/brightness.py")
+echo "background brightness back in the dark theme: $B"
+[ "$B" -le 60 ] || fail "choosing Dark didn't make the app dark again (brightness $B)"
+echo "PASS: light and dark themes"
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+
 echo "--- Home-screen widget"
 adb shell dumpsys appwidget | grep -q "mymusic.PlayerWidget" || fail "the home-screen widget isn't registered with the launcher"
 echo "PASS: home-screen widget is available"

@@ -75,180 +75,184 @@ fun NowPlaying(vm: MusicViewModel) {
     // Swipe the cover sideways to change song.
     var swipeX by remember { mutableFloatStateOf(0f) }
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .offset { IntOffset(0, dragDown.value.roundToInt()) }
-            .background(Brush.verticalGradient(listOf(color.deep(0.1f), color.deep(0.65f), Color(0xFF070709))))
-            // Swallow taps so they don't reach the screen underneath.
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
-            .pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onDragEnd = {
-                        if (dragDown.value > size.height * 0.2f) vm.showPlayer = false
-                        else scope.launch { dragDown.animateTo(0f) }
-                    },
-                    onDragCancel = { scope.launch { dragDown.animateTo(0f) } },
-                ) { change, dy ->
-                    change.consume()
-                    scope.launch { dragDown.snapTo((dragDown.value + dy).coerceAtLeast(0f)) }
+    AlwaysDark {
+        Box(
+            Modifier
+                .fillMaxSize()
+                // The swipe is detected outside the offset below, so the finger is measured against
+                // the screen rather than against the player that's moving along with it.
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures(
+                        onDragEnd = {
+                            if (dragDown.value > size.height * 0.2f) vm.showPlayer = false
+                            else scope.launch { dragDown.animateTo(0f) }
+                        },
+                        onDragCancel = { scope.launch { dragDown.animateTo(0f) } },
+                    ) { change, dy ->
+                        change.consume()
+                        scope.launch { dragDown.snapTo((dragDown.value + dy).coerceAtLeast(0f)) }
+                    }
                 }
-            },
-    ) {
-        Column(Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 24.dp)) {
-            Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { vm.showPlayer = false }) {
-                    Icon(Icons.Rounded.KeyboardArrowDown, "Close player", modifier = Modifier.size(32.dp))
+                .offset { IntOffset(0, dragDown.value.roundToInt()) }
+                .background(Brush.verticalGradient(listOf(color.deep(0.1f), color.deep(0.65f), Color(0xFF070709))))
+                // Swallow taps so they don't reach the screen underneath.
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
+        ) {
+            Column(Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 24.dp)) {
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { vm.showPlayer = false }) {
+                        Icon(Icons.Rounded.KeyboardArrowDown, "Close player", modifier = Modifier.size(32.dp))
+                    }
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("PLAYING FROM", style = MaterialTheme.typography.labelSmall, color = dim)
+                        Text(vm.playingFrom, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                    }
+                    Box {
+                        IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "More options") }
+                        if (song != null) SongMenu(vm, song, expanded = menu, onDismiss = { menu = false })
+                    }
                 }
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("PLAYING FROM", style = MaterialTheme.typography.labelSmall, color = dim)
-                    Text(vm.playingFrom, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-                }
-                Box {
-                    IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "More options") }
-                    if (song != null) SongMenu(vm, song, expanded = menu, onDismiss = { menu = false })
-                }
-            }
 
-            AnimatedContent(
-                targetState = panel,
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
-                modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 20.dp),
-                contentAlignment = Alignment.Center,
-                label = "artOrQueue",
-            ) { shown ->
-                if (shown == Panel.QUEUE) {
-                    UpNextList(vm)
-                } else if (shown == Panel.LYRICS) {
-                    LyricsPanel(vm)
-                } else {
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .pointerInput(Unit) {
-                                detectHorizontalDragGestures(
-                                    onDragEnd = {
-                                        val threshold = 80.dp.toPx()
-                                        if (swipeX < -threshold) vm.next() else if (swipeX > threshold) vm.previousTrack()
-                                        swipeX = 0f
-                                    },
-                                    onDragCancel = { swipeX = 0f },
-                                ) { change, dx ->
-                                    change.consume()
-                                    swipeX += dx
-                                }
-                            },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        ArtImage(
-                            song,
+                AnimatedContent(
+                    targetState = panel,
+                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 20.dp),
+                    contentAlignment = Alignment.Center,
+                    label = "artOrQueue",
+                ) { shown ->
+                    if (shown == Panel.QUEUE) {
+                        UpNextList(vm)
+                    } else if (shown == Panel.LYRICS) {
+                        LyricsPanel(vm)
+                    } else {
+                        Box(
                             Modifier
-                                .aspectRatio(1f)
-                                .graphicsLayer {
-                                    scaleX = artScale
-                                    scaleY = artScale
-                                    translationX = swipeX * 0.6f
-                                    alpha = 1f - (abs(swipeX) / 1200f).coerceAtMost(0.4f)
-                                }
-                                .shadow(30.dp, RoundedCornerShape(10.dp)),
-                            sizePx = 900,
-                            shape = RoundedCornerShape(10.dp),
-                            iconSize = 110.dp,
-                        )
+                                .fillMaxSize()
+                                .pointerInput(Unit) {
+                                    detectHorizontalDragGestures(
+                                        onDragEnd = {
+                                            val threshold = 80.dp.toPx()
+                                            if (swipeX < -threshold) vm.next() else if (swipeX > threshold) vm.previousTrack()
+                                            swipeX = 0f
+                                        },
+                                        onDragCancel = { swipeX = 0f },
+                                    ) { change, dx ->
+                                        change.consume()
+                                        swipeX += dx
+                                    }
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            ArtImage(
+                                song,
+                                Modifier
+                                    .aspectRatio(1f)
+                                    .graphicsLayer {
+                                        scaleX = artScale
+                                        scaleY = artScale
+                                        translationX = swipeX * 0.6f
+                                        alpha = 1f - (abs(swipeX) / 1200f).coerceAtMost(0.4f)
+                                    }
+                                    .shadow(30.dp, RoundedCornerShape(10.dp)),
+                                sizePx = 900,
+                                shape = RoundedCornerShape(10.dp),
+                                iconSize = 110.dp,
+                            )
+                        }
                     }
                 }
-            }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        song?.title ?: vm.currentTitle,
-                        style = MaterialTheme.typography.headlineSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(song?.artist ?: vm.currentArtist, color = dim, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            song?.title ?: vm.currentTitle,
+                            style = MaterialTheme.typography.headlineSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(song?.artist ?: vm.currentArtist, color = dim, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (song != null) {
+                        val liked = vm.isLiked(song)
+                        IconButton(onClick = { vm.toggleLike(song) }) {
+                            Icon(
+                                if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                if (liked) "Remove from Liked songs" else "Like",
+                                tint = if (liked) MaterialTheme.colorScheme.primary else Color.White,
+                                modifier = Modifier.size(28.dp),
+                            )
+                        }
+                    }
                 }
-                if (song != null) {
-                    val liked = vm.isLiked(song)
-                    IconButton(onClick = { vm.toggleLike(song) }) {
+
+                Spacer(Modifier.height(14.dp))
+                SeekBar(
+                    fraction = if (duration > 0) vm.positionMs.toFloat() / duration else 0f,
+                    onSeek = { vm.seekTo((it * duration).toLong()) },
+                    onDrag = { dragFraction = it },
+                    enabled = duration > 0,
+                )
+                Row {
+                    Text(formatTime(dragFraction?.let { (it * duration).toLong() } ?: vm.positionMs), color = dim, fontSize = 12.sp)
+                    Spacer(Modifier.weight(1f))
+                    Text(formatTime(duration), color = dim, fontSize = 12.sp)
+                }
+
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ToggleButton(Icons.Rounded.Shuffle, if (vm.shuffle) "Shuffle on" else "Shuffle off", on = vm.shuffle, onClick = vm::toggleShuffle)
+                    IconButton(onClick = { vm.previous() }, modifier = Modifier.size(64.dp)) {
+                        Icon(Icons.Rounded.SkipPrevious, "Previous song", modifier = Modifier.size(46.dp))
+                    }
+                    Surface(onClick = vm::togglePlay, shape = CircleShape, color = Color.White, contentColor = Color.Black, modifier = Modifier.size(74.dp)) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                if (vm.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                                if (vm.isPlaying) "Pause" else "Play",
+                                modifier = Modifier.size(42.dp),
+                            )
+                        }
+                    }
+                    IconButton(onClick = { vm.next() }, modifier = Modifier.size(64.dp)) {
+                        Icon(Icons.Rounded.SkipNext, "Next song", modifier = Modifier.size(46.dp))
+                    }
+                    val (repeatIcon, repeatLabel) = when (vm.repeatMode) {
+                        Player.REPEAT_MODE_ONE -> Icons.Rounded.RepeatOne to "Repeating this song"
+                        Player.REPEAT_MODE_ALL -> Icons.Rounded.Repeat to "Repeating all"
+                        else -> Icons.Rounded.Repeat to "Repeat off"
+                    }
+                    ToggleButton(repeatIcon, repeatLabel, on = vm.repeatMode != Player.REPEAT_MODE_OFF, onClick = vm::cycleRepeat)
+                }
+
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { vm.showEqualizer = true }) {
                         Icon(
-                            if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                            if (liked) "Remove from Liked songs" else "Like",
-                            tint = if (liked) MaterialTheme.colorScheme.primary else Color.White,
-                            modifier = Modifier.size(28.dp),
+                            Icons.Rounded.Tune,
+                            "Equalizer",
+                            tint = if (vm.eqSettings.enabled) MaterialTheme.colorScheme.primary else dim,
                         )
                     }
-                }
-            }
-
-            Spacer(Modifier.height(14.dp))
-            SeekBar(
-                fraction = if (duration > 0) vm.positionMs.toFloat() / duration else 0f,
-                onSeek = { vm.seekTo((it * duration).toLong()) },
-                onDrag = { dragFraction = it },
-                enabled = duration > 0,
-            )
-            Row {
-                Text(formatTime(dragFraction?.let { (it * duration).toLong() } ?: vm.positionMs), color = dim, fontSize = 12.sp)
-                Spacer(Modifier.weight(1f))
-                Text(formatTime(duration), color = dim, fontSize = 12.sp)
-            }
-
-            Spacer(Modifier.height(10.dp))
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ToggleButton(Icons.Rounded.Shuffle, if (vm.shuffle) "Shuffle on" else "Shuffle off", on = vm.shuffle, onClick = vm::toggleShuffle)
-                IconButton(onClick = { vm.previous() }, modifier = Modifier.size(64.dp)) {
-                    Icon(Icons.Rounded.SkipPrevious, "Previous song", modifier = Modifier.size(46.dp))
-                }
-                Surface(onClick = vm::togglePlay, shape = CircleShape, color = Color.White, contentColor = Color.Black, modifier = Modifier.size(74.dp)) {
-                    Box(contentAlignment = Alignment.Center) {
+                    SleepButton(vm, dim) { sleepDialog = true }
+                    SpeedButton(vm, dim) { speedDialog = true }
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = { panel = if (panel == Panel.LYRICS) Panel.COVER else Panel.LYRICS }) {
                         Icon(
-                            if (vm.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            if (vm.isPlaying) "Pause" else "Play",
-                            modifier = Modifier.size(42.dp),
+                            Icons.Rounded.Lyrics,
+                            if (panel == Panel.LYRICS) "Hide lyrics" else "Show lyrics",
+                            tint = if (panel == Panel.LYRICS) MaterialTheme.colorScheme.primary else dim,
                         )
                     }
-                }
-                IconButton(onClick = { vm.next() }, modifier = Modifier.size(64.dp)) {
-                    Icon(Icons.Rounded.SkipNext, "Next song", modifier = Modifier.size(46.dp))
-                }
-                val (repeatIcon, repeatLabel) = when (vm.repeatMode) {
-                    Player.REPEAT_MODE_ONE -> Icons.Rounded.RepeatOne to "Repeating this song"
-                    Player.REPEAT_MODE_ALL -> Icons.Rounded.Repeat to "Repeating all"
-                    else -> Icons.Rounded.Repeat to "Repeat off"
-                }
-                ToggleButton(repeatIcon, repeatLabel, on = vm.repeatMode != Player.REPEAT_MODE_OFF, onClick = vm::cycleRepeat)
-            }
-
-            Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { vm.showEqualizer = true }) {
-                    Icon(
-                        Icons.Rounded.Tune,
-                        "Equalizer",
-                        tint = if (vm.eqSettings.enabled) MaterialTheme.colorScheme.primary else dim,
-                    )
-                }
-                SleepButton(vm, dim) { sleepDialog = true }
-                SpeedButton(vm, dim) { speedDialog = true }
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = { panel = if (panel == Panel.LYRICS) Panel.COVER else Panel.LYRICS }) {
-                    Icon(
-                        Icons.Rounded.Lyrics,
-                        if (panel == Panel.LYRICS) "Hide lyrics" else "Show lyrics",
-                        tint = if (panel == Panel.LYRICS) MaterialTheme.colorScheme.primary else dim,
-                    )
-                }
-                IconButton(onClick = { panel = if (panel == Panel.QUEUE) Panel.COVER else Panel.QUEUE }) {
-                    Icon(
-                        Icons.AutoMirrored.Rounded.QueueMusic,
-                        if (panel == Panel.QUEUE) "Show cover" else "Show up next",
-                        tint = if (panel == Panel.QUEUE) MaterialTheme.colorScheme.primary else dim,
-                    )
+                    IconButton(onClick = { panel = if (panel == Panel.QUEUE) Panel.COVER else Panel.QUEUE }) {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.QueueMusic,
+                            if (panel == Panel.QUEUE) "Show cover" else "Show up next",
+                            tint = if (panel == Panel.QUEUE) MaterialTheme.colorScheme.primary else dim,
+                        )
+                    }
                 }
             }
         }
