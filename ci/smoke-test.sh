@@ -715,16 +715,27 @@ dump lock
 shot 29-lock-screen
 grep -q 'content-desc="Lock screen player"' "$OUT/lock.xml" || fail "waking the locked phone didn't show the player over the lock screen"
 grep -q 'text="Library"' "$OUT/lock.xml" && fail "the library is reachable from the lock screen"
-grep -q "text=\"$(now_playing)\"" "$OUT/lock.xml" || fail "the lock-screen player doesn't show the song that's playing"
-tap lock "Unlock to open Isaialai"
+LOCK_SONG=$(now_playing)
+grep -q "text=\"$LOCK_SONG\"" "$OUT/lock.xml" || fail "the lock-screen player doesn't show the song that's playing"
+# The heart: like the song (or unlike it, if it's already liked) without unlocking.
+if grep -q 'content-desc="Remove from Liked songs"' "$OUT/lock.xml"; then BEFORE="Remove from Liked songs"; AFTER="Like"; else BEFORE="Like"; AFTER="Remove from Liked songs"; fi
+tap lock "$BEFORE"
+sleep 1
+dump lock-liked
+shot 29b-lock-screen-liked
+grep -q "content-desc=\"$AFTER\"" "$OUT/lock-liked.xml" || fail "tapping the heart on the lock screen didn't change it"
+grep -q 'content-desc="Lock screen player"' "$OUT/lock-liked.xml" || fail "tapping the heart left the lock-screen player"
+tap lock-liked "Unlock to open Isaialai"
 sleep 2
 adb shell input text 1111
 adb shell input keyevent KEYCODE_ENTER
 sleep 3
 dump unlocked
 grep -q 'text="Library"' "$OUT/unlocked.xml" || fail "unlocking didn't go back to the app"
+# The mini player's heart shows the same: the like (or unlike) was saved.
+grep -q "content-desc=\"$AFTER\"" "$OUT/unlocked.xml" || fail "the heart tapped on the lock screen wasn't saved"
 adb shell locksettings clear --old 1111 > /dev/null
-echo "PASS: the player shows over the lock screen, and only the player"
+echo "PASS: the player shows over the lock screen, and only the player; its heart likes the song"
 
 echo "--- Android Auto"
 # Android prints the service either as "pkg/.PlaybackService" or "name=pkg.PlaybackService".
