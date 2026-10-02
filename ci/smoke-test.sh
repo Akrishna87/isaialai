@@ -20,6 +20,8 @@ fail() {
     echo "On screen:"; grep -o 'text="[^"]\+"' "$OUT/failure.xml" | head -40 || true
   fi
   adb logcat -d > "$OUT/logcat.txt" || true
+  echo "App log (errors and warnings):"
+  grep -E "AndroidRuntime|FATAL|mymusic|ExoPlayer|MediaSession" "$OUT/logcat.txt" | grep -E " [EWF] " | tail -40 || true
   exit 1
 }
 dump() {
@@ -646,9 +648,13 @@ dump songs-loud
 tap songs-loud "Loud Song"
 sleep 6 # long enough to measure it
 open_settings
-scroll_down # the level line is under Even volume, near the bottom
-dump settings-loud
+for _ in 1 2 3; do
+  scroll_down # the level line is under Even volume, near the bottom
+  dump settings-loud
+  grep -q "Now playing" "$OUT/settings-loud.xml" && break
+done
 shot 23-even-volume
+echo "Even volume line: $(grep -o 'Now playing[^"]*' "$OUT/settings-loud.xml" || echo '(none)')"
 grep -q "Loud Song.*turned down" "$OUT/settings-loud.xml" || fail "even volume didn't turn the loud song down"
 echo "PASS: even volume turns a loud song down"
 adb shell input keyevent KEYCODE_BACK
