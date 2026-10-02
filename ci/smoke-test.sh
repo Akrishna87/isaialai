@@ -828,7 +828,7 @@ tap home-recent "Test Movie"
 sleep 3
 dump movie-page
 grep -q 'text="Album"\|text="Album · ' "$OUT/movie-page.xml" || grep -q 'Album ·' "$OUT/movie-page.xml" || fail "tapping the movie in Jump back in didn't open its album page"
-grep -q 'text="Arabic Test' "$OUT/movie-page.xml" || fail "the movie page doesn't list its song"
+python3 "$HERE/find_text.py" "$OUT/movie-page.xml" "Arabic Test" > /dev/null || fail "the movie page doesn't list its song"
 echo "PASS: Jump back in opens the movie, and shows songs without one as themselves"
 adb shell input keyevent KEYCODE_BACK
 sleep 1
