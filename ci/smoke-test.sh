@@ -53,6 +53,19 @@ scroll_down() { # swipe up on the middle of the screen
   sleep 1
 }
 playing() { session; grep -Eq "\{state=(PLAYING|3)" "$OUT/session.txt"; }
+tap_clear() { # tap_clear <text>: scroll until <text> is above the mini player, then tap it
+  local i b x1 y1 x2 y2 h
+  h=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); h=${h#*x}
+  for i in 1 2 3 4; do
+    dump clear
+    if b=$(python3 "$HERE/find_text.py" "$OUT/clear.xml" "$1" bounds 2> /dev/null); then
+      read -r x1 y1 x2 y2 <<<"$b"
+      if [ $(((y1 + y2) / 2)) -lt $((h * 68 / 100)) ]; then adb shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2)); return 0; fi
+    fi
+    scroll_down
+  done
+  fail "couldn't get '$1' clear of the mini player to tap it"
+}
 chip() { # chip <name>: tap a Library tab chip, scrolling the chip row sideways if it's out of view
   local i y xy
   for i in 1 2 3 4 5 6; do
@@ -633,9 +646,7 @@ tap settings "5 s" # crossfade
 sleep 1
 dump settings-xfade
 grep -q 'Crossfade: 5 s' "$OUT/settings-xfade.xml" || fail "choosing a 5 s crossfade didn't stick"
-scroll_down # Even volume is at the bottom, under the mini player
-dump settings-scrolled
-tap settings-scrolled "Even volume"
+tap_clear "Even volume"
 sleep 3 # long enough to measure the song playing now
 dump settings-on
 grep -q "turned up\|turned down\|already at the right level" "$OUT/settings-on.xml" \
@@ -873,9 +884,7 @@ sleep 2
 dump home-gear-resume2
 tap home-gear-resume2 "Settings"
 sleep 2
-scroll_down # the Continue setting is below the theme options
-dump settings-resume
-tap settings-resume "All songs"
+tap_clear "All songs"
 sleep 1
 adb shell input keyevent KEYCODE_BACK
 sleep 1
@@ -924,9 +933,7 @@ echo "PASS: songs continue where they were left, and Home lists them"
 dump home-gear-resume3
 tap home-gear-resume3 "Settings"
 sleep 2
-scroll_down
-dump settings-resume2
-tap settings-resume2 "Long tracks" # back to the default
+tap_clear "Long tracks" # back to the default
 sleep 1
 adb shell input keyevent KEYCODE_BACK
 sleep 1
