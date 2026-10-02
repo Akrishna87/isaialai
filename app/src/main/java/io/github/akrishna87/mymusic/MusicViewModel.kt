@@ -38,11 +38,25 @@ sealed interface Screen {
     data class Artist(val name: String) : Screen
     data class Folder(val path: String) : Screen
     data class PlaylistDetail(val id: String) : Screen
+    data class Composer(val name: String) : Screen
+    data class Smart(val kind: SmartPlaylist) : Screen
+    data object Duplicates : Screen
+    data object Settings : Screen
+}
+
+/** Playlists that fill themselves from what you play. */
+enum class SmartPlaylist(val label: String, val blurb: String) {
+    MOST_PLAYED("Most played", "Your 50 most played songs"),
+    RECENTLY_ADDED("Recently added", "Songs added in the last 30 days"),
+    NOT_PLAYED_LATELY("Not played in a while", "Songs you played before, but not in the last 2 months"),
+    NEVER_PLAYED("Never played", "Songs you haven't played in Isaialai yet"),
 }
 
 enum class Section { HOME, SEARCH, LIBRARY }
 
-enum class LibraryChip(val label: String) { SONGS("Songs"), ALBUMS("Albums"), ARTISTS("Artists"), FOLDERS("Folders"), PLAYLISTS("Playlists") }
+enum class LibraryChip(val label: String) {
+    SONGS("Songs"), ALBUMS("Albums"), ARTISTS("Artists"), COMPOSERS("Composers"), FOLDERS("Folders"), PLAYLISTS("Playlists")
+}
 
 /** A pending "name this playlist" prompt. */
 data class NameRequest(val title: String, val initial: String, val onSave: (String) -> Unit)
@@ -60,12 +74,16 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     var addedFolders by mutableStateOf<List<Pair<Uri, String>>>(emptyList()); private set
     var scanningFolders by mutableStateOf(false); private set
     private var folderSongs: List<Song> = emptyList()
+    /** .lrc files in added folders, keyed by [LyricsLoader.lrcKey]. */
+    var lrcFiles by mutableStateOf<Map<String, Uri>>(emptyMap()); private set
 
     // ----- Navigation & UI -----
     val screens = mutableStateListOf<Screen>()
     var showPlayer by mutableStateOf(false)
     var section by mutableStateOf(Section.HOME); private set
-    var libraryChip by mutableStateOf(LibraryChip.entries.getOrElse(prefs.getInt("chip", 0)) { LibraryChip.SONGS }); private set
+    var libraryChip by mutableStateOf(
+        LibraryChip.entries.firstOrNull { it.name == prefs.getString("chipName", null) } ?: LibraryChip.SONGS,
+    ); private set
     /** What's typed on the Search screen. */
     var query by mutableStateOf("")
     /** Where the current queue came from, shown at the top of the full player. */
@@ -78,12 +96,59 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
     val playlists = PlaylistStore(app)
 
+    /** Song details corrected in the app; see [SongEdits]. */
+    private val edits = SongEdits(app)
+    /** The song whose details are being edited, if the edit dialog is open. */
+    var editing by mutableStateOf<Song?>(null)
+    /** The library as read from the phone, before edits are applied. */
+    private var rawSongs: List<Song> = emptyList()
+
     // ----- Listening history (for Home) -----
     /** Song ids, most recently played first. */
     var history by mutableStateOf(loadHistory()); private set
     private val playCounts: MutableMap<String, Int> = loadCounts()
+    /** When each song was last played (ms since epoch). */
+    private val lastPlayed: MutableMap<String, Long> = loadLastPlayed()
     var countsVersion by mutableIntStateOf(0); private set
     private var lastRecorded: String? = null
+
+    // ----- Equaliser & sleep timer (applied by PlaybackService) -----
+    private val effectsPrefs = Effects.prefs(app)
+    /** What the phone's equaliser offers; null until the player service has started once. */
+    var eqInfo by mutableStateOf(Effects.readInfo(effectsPrefs)); private set
+    var eqSettings by mutableStateOf(Effects.read(effectsPrefs)); private set
+    var showEqualizer by mutableStateOf(false)
+    /** When the sleep timer stops playback (ms since epoch), or 0. */
+    var sleepUntil by mutableLongStateOf(effectsPrefs.getLong(Effects.KEY_SLEEP_UNTIL, 0L)); private set
+    var sleepEndOfSong by mutableStateOf(effectsPrefs.getBoolean(Effects.KEY_SLEEP_END_OF_SONG, false)); private set
+    var crossfadeSec by mutableIntStateOf(effectsPrefs.getInt(Effects.KEY_CROSSFADE, 0)); private set
+    var evenVolume by mutableStateOf(effectsPrefs.getBoolean(Effects.KEY_EVEN_VOLUME, false)); private set
+    /** The song playing now and how many dB even volume moved it, while even volume is on. */
+    var evenVolumeNow by mutableStateOf(readEvenVolumeNow()); private set
+    private val effectsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { p, _ ->
+        eqInfo = Effects.readInfo(p)
+        eqSettings = Effects.read(p)
+        sleepUntil = p.getLong(Effects.KEY_SLEEP_UNTIL, 0L)
+        sleepEndOfSong = p.getBoolean(Effects.KEY_SLEEP_END_OF_SONG, false)
+        crossfadeSec = p.getInt(Effects.KEY_CROSSFADE, 0)
+        evenVolume = p.getBoolean(Effects.KEY_EVEN_VOLUME, false)
+        evenVolumeNow = readEvenVolumeNow()
+    }
+
+    private fun readEvenVolumeNow(): Pair<String, Float>? =
+        effectsPrefs.getString(Effects.KEY_EVEN_VOLUME_NOW, null)?.let { v ->
+            v.substringAfterLast('|').toFloatOrNull()?.let { v.substringBeforeLast('|') to it }
+        }
+
+    fun setCrossfade(seconds: Int) {
+        crossfadeSec = seconds.coerceIn(0, 12)
+        effectsPrefs.edit().putInt(Effects.KEY_CROSSFADE, crossfadeSec).apply()
+    }
+
+    fun setEvenVolumeOn(on: Boolean) {
+        evenVolume = on
+        effectsPrefs.edit().putBoolean(Effects.KEY_EVEN_VOLUME, on).apply()
+    }
 
     // ----- Player mirror -----
     var currentId by mutableStateOf<String?>(null); private set
@@ -96,6 +161,9 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     var durationMs by mutableLongStateOf(0L); private set
     /** Upcoming songs as (queue index, song id), in play order. */
     var upNext by mutableStateOf<List<Pair<Int, String>>>(emptyList()); private set
+    var speed by mutableStateOf(1f); private set
+    /** Pitch as a factor (1 = normal); the screen shows it in semitones. */
+    var pitch by mutableStateOf(1f); private set
 
     val currentSong: Song? get() = currentId?.let { songsById[it] }
 
@@ -146,7 +214,12 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    init {
+        effectsPrefs.registerOnSharedPreferenceChangeListener(effectsListener)
+    }
+
     override fun onCleared() {
+        effectsPrefs.unregisterOnSharedPreferenceChangeListener(effectsListener)
         if (observing) getApplication<Application>().contentResolver.unregisterContentObserver(mediaObserver)
         controller?.removeListener(playerListener)
         MediaController.releaseFuture(controllerFuture)
@@ -163,8 +236,10 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun publish(list: List<Song>) {
-        songs = list
-        songsById = list.associateBy { it.id }
+        rawSongs = list
+        val edited = list.map(edits::apply)
+        songs = edited
+        songsById = edited.associateBy { it.id }
         loading = false
         syncFromPlayer()
     }
@@ -190,14 +265,17 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
             val trees = AddedFolders.list(app)
             addedFolders = withContext(Dispatchers.IO) { trees.map { it to AddedFolders.displayPath(app, it) } }
+            LyricsLoader.forget()
             if (trees.isEmpty()) {
                 folderSongs = emptyList()
+                lrcFiles = emptyMap()
                 publish(library)
             } else {
                 scanningFolders = true
                 try {
                     val result = withContext(Dispatchers.IO) { AddedFolders.scan(app, trees, known) }
                     folderSongs = result.songs
+                    lrcFiles = result.lyricsFiles
                     publish(library + result.songs)
                     if (newFolder != null) {
                         val name = addedFolders.firstOrNull { it.first == newFolder }?.second ?: "the folder"
@@ -242,7 +320,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
     fun selectChip(c: LibraryChip) {
         libraryChip = c
-        prefs.edit().putInt("chip", c.ordinal).apply()
+        prefs.edit().putString("chipName", c.name).apply()
     }
 
     fun saveSort(s: SongSort) {
@@ -256,6 +334,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun back(): Boolean = when {
+        showEqualizer -> { showEqualizer = false; true }
         showPlayer -> { showPlayer = false; true }
         screens.isNotEmpty() -> { screens.removeAt(screens.lastIndex); true }
         else -> false
@@ -273,6 +352,8 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         shuffle = c.shuffleModeEnabled
         repeatMode = c.repeatMode
         positionMs = c.currentPosition.coerceAtLeast(0)
+        speed = c.playbackParameters.speed
+        pitch = c.playbackParameters.pitch
 
         val tl = c.currentTimeline
         val next = ArrayList<Pair<Int, String>>()
@@ -310,14 +391,40 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         HashMap()
     }
 
+    private fun loadLastPlayed(): MutableMap<String, Long> = try {
+        val o = org.json.JSONObject(prefs.getString("lastPlayed", "{}") ?: "{}")
+        o.keys().asSequence().associateWithTo(HashMap<String, Long>()) { o.getLong(it) }
+    } catch (e: Exception) {
+        HashMap()
+    }
+
     private fun recordPlay(id: String) {
         history = (listOf(id) + history.filter { it != id }).take(100)
         playCounts[id] = (playCounts[id] ?: 0) + 1
+        lastPlayed[id] = System.currentTimeMillis()
         countsVersion++
         prefs.edit()
             .putString("history", org.json.JSONArray(history).toString())
             .putString("counts", org.json.JSONObject(playCounts as Map<*, *>).toString())
+            .putString("lastPlayed", org.json.JSONObject(lastPlayed as Map<*, *>).toString())
             .apply()
+    }
+
+    /** The songs in a smart playlist right now. */
+    fun smartSongs(kind: SmartPlaylist, all: List<Song> = songs): List<Song> {
+        val now = System.currentTimeMillis()
+        val day = 24L * 60 * 60 * 1000
+        return when (kind) {
+            SmartPlaylist.MOST_PLAYED ->
+                all.filter { playCount(it.id) > 0 }.sortedByDescending { playCount(it.id) }.take(50)
+            SmartPlaylist.RECENTLY_ADDED ->
+                all.filter { it.dateAdded * 1000 >= now - 30 * day }.sortedByDescending { it.dateAdded }
+            SmartPlaylist.NOT_PLAYED_LATELY ->
+                all.filter { s -> lastPlayed[s.id]?.let { it < now - 60 * day } == true }
+                    .sortedByDescending { playCount(it.id) }
+            SmartPlaylist.NEVER_PLAYED ->
+                all.filter { playCount(it.id) == 0 }.sortedByDescending { it.dateAdded }
+        }
     }
 
     fun playCount(id: String): Int = playCounts[id] ?: 0
@@ -360,12 +467,65 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
     fun next() = controller?.seekToNextMediaItem()
     fun previous() = controller?.seekToPrevious()
+    /** Always the song before (used by swipe gestures), never "restart this song". */
+    fun previousTrack() = controller?.seekToPreviousMediaItem()
     fun seekTo(ms: Long) = controller?.seekTo(ms)
     fun jumpTo(index: Int) = controller?.let { it.seekTo(index, 0L); it.play() }
+
+    /** Moves a song within Up next ([from] and [to] are positions in [upNext]). */
+    fun moveUpNext(from: Int, to: Int) {
+        val c = controller ?: return
+        if (from == to || from !in upNext.indices || to !in upNext.indices) return
+        // Show the new order straight away; the player confirms it a moment later.
+        upNext = upNext.toMutableList().apply { add(to, removeAt(from)) }
+        c.sendCustomCommand(
+            SessionCommand(PlaybackService.CMD_MOVE_UPCOMING, Bundle.EMPTY),
+            Bundle().apply { putInt("from", from); putInt("to", to) },
+        )
+    }
+
+    /**
+     * Takes a song out of the queue ([queueIndex] and [songId] as in [upNext]). Does nothing if that
+     * place in the queue now holds a different song, so a repeated request can't remove the next one.
+     */
+    fun removeFromQueue(queueIndex: Int, songId: String) {
+        val c = controller ?: return
+        if (queueIndex !in 0 until c.mediaItemCount || queueIndex == c.currentMediaItemIndex) return
+        if (c.getMediaItemAt(queueIndex).mediaId != songId) return
+        val title = c.getMediaItemAt(queueIndex).mediaMetadata.title
+        upNext = upNext.filter { it.first != queueIndex }
+        c.removeMediaItem(queueIndex)
+        messageChannel.trySend("Removed “$title” from the queue")
+    }
+
+    fun setSpeedAndPitch(newSpeed: Float, newPitch: Float) {
+        val c = controller ?: return
+        c.playbackParameters = androidx.media3.common.PlaybackParameters(newSpeed.coerceIn(0.5f, 2f), newPitch.coerceIn(0.5f, 2f))
+    }
+
+    fun isEdited(song: Song) = edits.isEdited(song.id)
+
+    /** Saves corrected details for [song] (null [edit] undoes them) and updates the queue to match. */
+    fun saveEdit(song: Song, edit: SongEdits.Edit?) {
+        if (edit == null) edits.clear(song.id) else edits.set(song.id, edit)
+        publish(rawSongs)
+        val updated = songsById[song.id] ?: return
+        controller?.let { c ->
+            for (i in 0 until c.mediaItemCount) {
+                if (c.getMediaItemAt(i).mediaId == song.id) c.replaceMediaItem(i, updated.toMediaItem())
+            }
+        }
+        messageChannel.trySend(if (edit == null) "Back to the details in the file" else "Saved")
+    }
+
+    suspend fun loadLyrics(song: Song): Lyrics? = withContext(Dispatchers.IO) {
+        LyricsLoader.load(getApplication(), song, lrcFiles)
+    }
 
     fun toggleShuffle() {
         val c = controller ?: return
         c.shuffleModeEnabled = !c.shuffleModeEnabled
+        messageChannel.trySend(if (c.shuffleModeEnabled) "Shuffle on" else "Shuffle off")
     }
 
     fun cycleRepeat() {
@@ -375,6 +535,68 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
             Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
             else -> Player.REPEAT_MODE_OFF
         }
+        messageChannel.trySend(
+            when (c.repeatMode) {
+                Player.REPEAT_MODE_ALL -> "Repeating all songs"
+                Player.REPEAT_MODE_ONE -> "Repeating this song"
+                else -> "Repeat off"
+            }
+        )
+    }
+
+    // ----- Equaliser -----
+
+    private fun updateEq(s: Effects.Settings) {
+        eqSettings = s
+        Effects.write(effectsPrefs, s)
+    }
+
+    /** The band levels currently in effect: the chosen preset's, or the person's own. */
+    fun eqLevels(): List<Int> {
+        val info = eqInfo ?: return emptyList()
+        val s = eqSettings
+        return if (s.preset in info.presets.indices) info.presets[s.preset].second
+        else List(info.bandsHz.size) { s.levels.getOrElse(it) { 0 } }
+    }
+
+    fun setEqEnabled(on: Boolean) = updateEq(eqSettings.copy(enabled = on))
+
+    fun selectEqPreset(index: Int) {
+        val levels = eqInfo?.presets?.getOrNull(index)?.second ?: eqLevels()
+        updateEq(eqSettings.copy(preset = index, levels = levels, enabled = true))
+    }
+
+    fun setEqBand(band: Int, level: Int) {
+        val levels = eqLevels().toMutableList()
+        if (band !in levels.indices) return
+        levels[band] = level
+        updateEq(eqSettings.copy(preset = -1, levels = levels, enabled = true))
+    }
+
+    fun setBassBoost(strength: Int) = updateEq(eqSettings.copy(bass = strength, enabled = true))
+
+    fun resetEq() {
+        val info = eqInfo ?: return
+        val flat = info.presets.indexOfFirst { it.second.all { level -> level == 0 } }
+        updateEq(Effects.Settings(eqSettings.enabled, preset = flat, levels = List(info.bandsHz.size) { 0 }, bass = 0))
+    }
+
+    // ----- Sleep timer -----
+
+    /** [minutes] > 0 stops after that long, -1 at the end of the current song, 0 cancels. */
+    fun setSleepTimer(minutes: Int) {
+        val c = controller ?: return
+        c.sendCustomCommand(
+            SessionCommand(PlaybackService.CMD_SLEEP, Bundle.EMPTY),
+            Bundle().apply { putInt("minutes", minutes) },
+        )
+        messageChannel.trySend(
+            when {
+                minutes > 0 -> "Music will stop in ${if (minutes >= 60) "${minutes / 60} hour" else "$minutes minutes"}"
+                minutes == -1 -> "Music will stop at the end of this song"
+                else -> "Sleep timer off"
+            }
+        )
     }
 
     // ----- Playlists -----

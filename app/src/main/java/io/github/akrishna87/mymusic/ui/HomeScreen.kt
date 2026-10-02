@@ -8,7 +8,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -71,7 +73,7 @@ fun HomeScreen(vm: MusicViewModel) {
     LazyColumn(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(tint.deep(0.55f), Palette.Background), endY = 1100f)),
+            .background(Brush.verticalGradient(listOf(tint.wash(0.55f), Palette.Background), endY = 1100f)),
         contentPadding = PaddingValues(bottom = LocalBottomSpace.current),
     ) {
         item {
@@ -80,8 +82,14 @@ fun HomeScreen(vm: MusicViewModel) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(greeting(), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                IconButton(onClick = { vm.showEqualizer = true }) {
+                    Icon(Icons.Rounded.Tune, contentDescription = "Equalizer")
+                }
                 IconButton(onClick = { vm.refreshLibrary(announce = true) }) {
                     Icon(Icons.Rounded.Refresh, contentDescription = "Rescan phone for music")
+                }
+                IconButton(onClick = { vm.open(Screen.Settings) }) {
+                    Icon(Icons.Rounded.Settings, contentDescription = "Settings")
                 }
             }
         }

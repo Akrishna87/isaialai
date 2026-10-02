@@ -21,54 +21,97 @@ jobs:
       run:
         working-directory: music-player-android
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
           java-version: "17"
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
       - name: Build the APK
         env:
           VERSION_CODE: ${{ github.run_number }}
         run: ./gradlew --no-daemon --stacktrace assembleRelease
-      - name: Name the APK
-        run: cp app/build/outputs/apk/release/app-release.apk MyMusic.apk
-      - uses: actions/upload-artifact@v4
+      - name: Sign with Isaialai's own key
+        env:
+          SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          built=app/build/outputs/apk/release/app-release.apk
+          mkdir -p old-key
+          cp "$built" old-key/old-key-only.apk  # for the update test only; never published
+          if [ ! -e signing/release.keystore.gpg ]; then
+            echo "::warning::No private signing key yet, so this build is signed with the old public key. See music-player-android/SECURITY.md."
+            cp "$built" Isaialai.apk
+            exit 0
+          fi
+          if [ -z "$SIGNING_PASSPHRASE" ]; then
+            echo "::error::The SIGNING_PASSPHRASE secret is missing, so the APK can't be signed."
+            exit 1
+          fi
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
+          key="$RUNNER_TEMP/release.p12"
+          trap 'shred -u "$key" 2>/dev/null || true' EXIT
+          printf '%s' "$SIGNING_PASSPHRASE" | gpg --batch --quiet --pinentry-mode loopback --passphrase-fd 0 \
+            --decrypt --output "$key" signing/release.keystore.gpg
+          # Older Android (before 9) checks the old key; Android 9+ checks the new one, plus the
+          # record that the old key handed over to it, so installed copies update in place.
+          "$apksigner" sign --in "$built" --out Isaialai.apk \
+            --v4-signing-enabled false \
+            --ks signing/sideload.keystore --ks-key-alias mymusic --ks-pass pass:mymusic \
+            --next-signer --ks "$key" --ks-key-alias isaialai --ks-pass env:SIGNING_PASSPHRASE \
+            --lineage signing/rotation.lineage --rotation-min-sdk-version 28
+          report=$("$apksigner" verify --verbose --print-certs Isaialai.apk)
+          echo "$report" | grep -E "Verified using|certificate DN" || true
+          grep -q "Verified using v3 scheme (APK Signature Scheme v3): true" <<<"$report" \
+            || { echo "::error::The APK has no v3 signature"; exit 1; }
+          "$apksigner" lineage --in Isaialai.apk --print-certs | tee lineage.txt
+          signers=$(grep -oE "^Signer #[0-9]+" lineage.txt | sort -u | wc -l)
+          [ "$signers" -eq 2 ] || { echo "::error::Expected the old and new key in the APK's signing history, found $signers"; exit 1; }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: MyMusic-apk
-          path: music-player-android/MyMusic.apk
+          path: music-player-android/Isaialai.apk
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: old-key-apk
+          path: music-player-android/old-key/old-key-only.apk
+          retention-days: 3
 
   smoke-test:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: MyMusic-apk
           path: apk
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: old-key-apk
+          path: old-key
+      - name: Restore the test songs
+        id: songs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: songs
+          key: test-songs-${{ hashFiles('music-player-android/ci/make-test-songs.sh') }}
       - name: Make test songs
+        if: steps.songs.outputs.cache-hit != 'true'
+        timeout-minutes: 25
         run: |
-          command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
-          mkdir -p songs
-          for i in 1 2 3; do
-            ffmpeg -loglevel error -f lavfi -i "sine=frequency=$((300 + i * 110)):duration=60" -c:a libmp3lame \
-              -metadata title="Smoke Song $i" -metadata artist="CI Band" -metadata album="CI Album" -metadata track=$i \
-              "songs/song$i.mp3"
-          done
-          # Android marks songs in a Podcasts folder as "not music"
-          ffmpeg -loglevel error -f lavfi -i "sine=frequency=660:duration=60" -c:a libmp3lame \
-            -metadata title="Smoke Podcast Song" -metadata artist="CI Band" -metadata album="CI Extras" songs/podcast.mp3
-          # goes in a folder with a .nomedia file, which Android's media library skips
-          ffmpeg -loglevel error -f lavfi -i "sine=frequency=770:duration=60" -c:a libmp3lame \
-            -metadata title="Smoke Hidden Song" -metadata artist="Hidden Band" -metadata album="Hidden Album" songs/hidden.mp3
+          set -x
+          # Some runners have no ffmpeg; skip the optional extras to keep the install small.
+          command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg)
+          bash music-player-android/ci/make-test-songs.sh songs
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Install and run on an Android 14 emulator
-        uses: reactivecircus/android-emulator-runner@v2
+        timeout-minutes: 40
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 34
           arch: x86_64
@@ -76,8 +119,10 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim -camera-back none
-          script: bash music-player-android/ci/smoke-test.sh apk/MyMusic.apk songs smoke-out
-      - uses: actions/upload-artifact@v4
+          script: |
+            bash music-player-android/ci/update-test.sh old-key/old-key-only.apk apk/Isaialai.apk
+            bash music-player-android/ci/smoke-test.sh apk/Isaialai.apk songs smoke-out
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: smoke-test-screens
@@ -89,11 +134,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: MyMusic-apk
           path: out
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: smoke-test-screens
           path: out/screens
@@ -103,8 +148,10 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           gh release delete music-player-latest --cleanup-tag --yes || true
-          gh release create music-player-latest out/MyMusic.apk out/screens/*.png \
+          # Keep the old file name too, so links shared before the rename still work.
+          cp out/Isaialai.apk out/MyMusic.apk
+          gh release create music-player-latest out/Isaialai.apk out/MyMusic.apk out/screens/*.png \
             --target "$GITHUB_SHA" \
             --prerelease \
-            --title "My Music for Android (build ${{ github.run_number }})" \
-            --notes "Download **MyMusic.apk** on your Android phone, open it, and allow installing from your browser when asked. Each new build installs as an update over the last one. The PNG files are screenshots from the automatic emulator test of this build."
+            --title "Isaialai for Android (build ${{ github.run_number }})" \
+            --notes "Download **Isaialai.apk** on your Android phone, open it, and allow installing from your browser when asked. Each new build installs as an update over the last one. The PNG files are screenshots from the automatic emulator test of this build. MyMusic.apk is the same file under the old name."

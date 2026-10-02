@@ -1,6 +1,7 @@
 package io.github.akrishna87.mymusic.ui
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -17,8 +18,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,10 +34,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -44,8 +52,14 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import io.github.akrishna87.mymusic.MusicViewModel
+import io.github.akrishna87.mymusic.Screen
+import io.github.akrishna87.mymusic.R
 import io.github.akrishna87.mymusic.Section
+import kotlin.math.abs
 
 private val AUDIO_PERMISSION =
     if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
@@ -66,7 +80,16 @@ fun MusicApp(vm: MusicViewModel = viewModel()) {
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { granted = hasAudioPermission(context) }
     LaunchedEffect(granted) { if (granted) vm.onPermissionGranted() }
 
-    if (granted) {
+    // Lock-screen player: with music loaded, the app may show over the lock screen, but only
+    // the player does; everything else waits until the phone is unlocked.
+    val activity = context as? Activity
+    val overLockScreen = granted && ThemeSettings.lockScreenPlayer && vm.currentId != null
+    LaunchedEffect(overLockScreen) { activity?.showOverLockScreen(overLockScreen) }
+    val locked = rememberPhoneLocked()
+
+    if (granted && locked && overLockScreen) {
+        LockScreenPlayer(vm)
+    } else if (granted) {
         Shell(vm)
     } else {
         PermissionScreen(
@@ -86,19 +109,20 @@ private fun PermissionScreen(denied: Boolean, onAsk: () -> Unit, onSettings: () 
     Box(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Palette.Violet.deep(0.35f), Palette.Background, Palette.Background))),
+            .background(Brush.verticalGradient(listOf(Palette.Violet.wash(0.35f), Palette.Background, Palette.Background))),
     ) {
         Column(
             Modifier.fillMaxSize().systemBarsPadding().padding(32.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            IconTile(Icons.Rounded.LibraryMusic, null, Modifier.size(112.dp), RoundedCornerShape(28.dp), iconSize = 56.dp)
-            Spacer(Modifier.height(32.dp))
-            Text("Your music,\nright here.", style = MaterialTheme.typography.headlineLarge, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(16.dp))
+            AppArt(Modifier.size(132.dp))
+            Spacer(Modifier.height(28.dp))
+            Text("Isaialai", style = MaterialTheme.typography.displaySmall, textAlign = TextAlign.Center)
+            Text("இசையலை · music wave", color = Palette.SubText, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(20.dp))
             Text(
-                "My Music plays the songs already saved on this phone, straight from storage. " +
+                "Isaialai plays the songs already saved on this phone, straight from storage. " +
                     "Nothing is copied or uploaded.",
                 textAlign = TextAlign.Center,
                 color = Palette.SubText,
@@ -126,12 +150,29 @@ private fun PermissionScreen(denied: Boolean, onAsk: () -> Unit, onSettings: () 
     }
 }
 
+/** The launcher icon's art (the vibing listener), for the welcome screen. */
+@Composable
+fun AppArt(modifier: Modifier = Modifier) {
+    Box(modifier.clip(RoundedCornerShape(32.dp))) {
+        Image(painterResource(R.drawable.ic_launcher_background), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        Image(painterResource(R.drawable.ic_launcher_foreground), contentDescription = null, modifier = Modifier.fillMaxSize().scale(1.35f), contentScale = ContentScale.Crop)
+    }
+}
+
 /** Bottom tabs, the mini player above them, and whichever screen is showing. */
 @Composable
 private fun Shell(vm: MusicViewModel) {
     val snackbar = remember { SnackbarHostState() }
+    // Status-bar icons: light over dark screens (and the always-dark player), dark over light ones.
+    val activity = LocalContext.current as? ComponentActivity
+    val darkBars = Palette.isDark || (vm.showPlayer && vm.currentId != null)
+    LaunchedEffect(darkBars) {
+        val style = if (darkBars) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
+        activity?.enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+    }
     LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
-    BackHandler(enabled = vm.showPlayer || vm.screens.isNotEmpty() || vm.section != Section.HOME) {
+    BackHandler(enabled = vm.showEqualizer || vm.showPlayer || vm.screens.isNotEmpty() || vm.section != Section.HOME) {
         if (!vm.back()) vm.selectSection(Section.HOME)
     }
 
@@ -148,6 +189,8 @@ private fun Shell(vm: MusicViewModel) {
             ) { (screen, section) ->
                 when {
                     vm.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    screen == Screen.Duplicates -> DuplicatesScreen(vm)
+                    screen == Screen.Settings -> SettingsScreen(vm)
                     screen != null -> DetailScreen(vm, screen)
                     vm.songs.isEmpty() && section != Section.LIBRARY -> EmptyLibrary(vm)
                     section == Section.HOME -> HomeScreen(vm)
@@ -170,6 +213,13 @@ private fun Shell(vm: MusicViewModel) {
         ) {
             NowPlaying(vm)
         }
+        AnimatedVisibility(
+            visible = vm.showEqualizer,
+            enter = slideInVertically { it },
+            exit = slideOutVertically { it },
+        ) {
+            EqualizerScreen(vm)
+        }
         SnackbarHost(
             snackbar,
             Modifier.align(Alignment.BottomCenter).padding(bottom = bottomSpace - 8.dp),
@@ -178,6 +228,7 @@ private fun Shell(vm: MusicViewModel) {
 
     vm.playlistPickerFor?.let { PlaylistPickerDialog(vm, it) }
     vm.nameRequest?.let { req -> NameDialog(req) { vm.nameRequest = null } }
+    vm.editing?.let { song -> EditSongDialog(vm, song) { vm.editing = null } }
 }
 
 @Composable
@@ -226,10 +277,30 @@ private fun MiniPlayer(vm: MusicViewModel) {
     val song = vm.currentSong
     val color = rememberArtColor(song)
     val fraction = if (vm.durationMs > 0) (vm.positionMs.toFloat() / vm.durationMs).coerceIn(0f, 1f) else 0f
+    // Swipe left for the next song, right for the previous one.
+    var swipeX by remember { mutableFloatStateOf(0f) }
     Box(Modifier.padding(horizontal = 8.dp).padding(bottom = 2.dp)) {
         Column(
             Modifier
                 .fillMaxWidth()
+                // Detected before the layer that slides the card, so the finger is measured against the screen.
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            val threshold = 70.dp.toPx()
+                            if (swipeX < -threshold) vm.next() else if (swipeX > threshold) vm.previousTrack()
+                            swipeX = 0f
+                        },
+                        onDragCancel = { swipeX = 0f },
+                    ) { change, dx ->
+                        change.consume()
+                        swipeX += dx
+                    }
+                }
+                .graphicsLayer {
+                    translationX = swipeX * 0.5f
+                    alpha = 1f - (abs(swipeX) / 900f).coerceAtMost(0.5f)
+                }
                 .clip(RoundedCornerShape(10.dp))
                 .background(color.deep(0.5f))
                 .clickable { vm.showPlayer = true },
@@ -241,7 +312,7 @@ private fun MiniPlayer(vm: MusicViewModel) {
             ) {
                 ArtImage(song, Modifier.size(44.dp), shape = RoundedCornerShape(6.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(song?.title ?: vm.currentTitle, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
+                    Text(song?.title ?: vm.currentTitle, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
                     Text(song?.artist ?: vm.currentArtist, color = Color.White.copy(alpha = 0.72f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
                 }
                 if (song != null) {

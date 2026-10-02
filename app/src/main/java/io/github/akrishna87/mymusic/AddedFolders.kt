@@ -53,7 +53,8 @@ object AddedFolders {
         } ?: "Added folder"
     }
 
-    class ScanResult(val songs: List<Song>, val audioFilesPerFolder: Map<Uri, Int>)
+    /** [lyricsFiles]: .lrc files found, keyed by [LyricsLoader.lrcKey] of the song they belong to. */
+    class ScanResult(val songs: List<Song>, val audioFilesPerFolder: Map<Uri, Int>, val lyricsFiles: Map<String, Uri>)
 
     /**
      * Walks every added folder and returns the songs in them, skipping files whose
@@ -64,15 +65,16 @@ object AddedFolders {
         val out = ArrayList<Song>()
         val seen = HashSet<String>()
         val perFolder = HashMap<Uri, Int>()
+        val lyrics = HashMap<String, Uri>()
         for (tree in trees) {
             perFolder[tree] = try {
-                walk(context, tree, tags, alreadyKnown, seen, out)
+                walk(context, tree, tags, alreadyKnown, seen, out, lyrics)
             } catch (e: Exception) {
                 0 // folder deleted, card removed, or access revoked
             }
         }
         tags.save()
-        return ScanResult(out, perFolder)
+        return ScanResult(out, perFolder, lyrics)
     }
 
     private fun walk(
@@ -82,6 +84,7 @@ object AddedFolders {
         alreadyKnown: Set<String>,
         seen: MutableSet<String>,
         out: MutableList<Song>,
+        lyrics: MutableMap<String, Uri>,
     ): Int {
         val external = tree.authority == EXTERNAL_STORAGE
         val rootId = DocumentsContract.getTreeDocumentId(tree)
@@ -107,6 +110,12 @@ object AddedFolders {
                     val mime = c.getString(2).orEmpty()
                     if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
                         if (!name.startsWith(".")) pending += docId to (if (dirPath.isEmpty()) name else "$dirPath/$name")
+                        continue
+                    }
+                    if (external && name.endsWith(".lrc", ignoreCase = true)) {
+                        val path = docId.substringAfter(':', "")
+                        val key = Storage.locationKey(docId.substringBefore(':'), path.substringBeforeLast('/', ""), name)
+                        lyrics[LyricsLoader.lrcKey(key)] = DocumentsContract.buildDocumentUriUsingTree(tree, docId)
                         continue
                     }
                     if (!mime.startsWith("audio/") && !AUDIO_EXTENSIONS.containsMatchIn(name)) continue
@@ -138,6 +147,8 @@ object AddedFolders {
                         folder = dirPath,
                         fileName = name,
                         locationKey = locationKey,
+                        composer = t.composer,
+                        year = t.year,
                     )
                 }
             }
@@ -150,7 +161,21 @@ object AddedFolders {
 
 /** Song tags read with MediaMetadataRetriever, cached on disk so rescans are fast. */
 private class TagCache(context: Context) {
-    data class Tags(val title: String, val artist: String, val album: String, val albumArtist: String, val durationMs: Long, val track: Int)
+    data class Tags(
+        val title: String,
+        val artist: String,
+        val album: String,
+        val albumArtist: String,
+        val durationMs: Long,
+        val track: Int,
+        val composer: String = "",
+        val year: Int = 0,
+    )
+
+    private companion object {
+        /** Bumped when more tags are read, so cached files are read again once. */
+        const val VERSION = 2
+    }
 
     private val file = File(context.filesDir, "folder-tags.json")
     private val entries: JSONObject = try {
@@ -161,19 +186,21 @@ private class TagCache(context: Context) {
     private val used = HashSet<String>()
     private var dirty = false
 
-    fun get(context: Context, uri: Uri, stamp: String): Tags {
+    fun get(context: Context, uri: Uri, fileStamp: String): Tags {
         val key = uri.toString()
+        val stamp = "$fileStamp|$VERSION"
         used += key
         entries.optJSONObject(key)?.let { o ->
             if (o.optString("stamp") == stamp) {
-                return Tags(o.optString("t"), o.optString("a"), o.optString("al"), o.optString("aa"), o.optLong("d"), o.optInt("n"))
+                return Tags(o.optString("t"), o.optString("a"), o.optString("al"), o.optString("aa"), o.optLong("d"), o.optInt("n"), o.optString("c"), o.optInt("y"))
             }
         }
         val tags = read(context, uri)
         entries.put(
             key,
             JSONObject().put("stamp", stamp).put("t", tags.title).put("a", tags.artist).put("al", tags.album)
-                .put("aa", tags.albumArtist).put("d", tags.durationMs).put("n", tags.track),
+                .put("aa", tags.albumArtist).put("d", tags.durationMs).put("n", tags.track)
+                .put("c", tags.composer).put("y", tags.year),
         )
         dirty = true
         return tags
@@ -191,6 +218,8 @@ private class TagCache(context: Context) {
                 albumArtist = tag(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST),
                 durationMs = tag(MediaMetadataRetriever.METADATA_KEY_DURATION).toLongOrNull() ?: 0L,
                 track = tag(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER).substringBefore('/').trim().toIntOrNull() ?: 0,
+                composer = tag(MediaMetadataRetriever.METADATA_KEY_COMPOSER),
+                year = tag(MediaMetadataRetriever.METADATA_KEY_YEAR).take(4).toIntOrNull() ?: 0,
             )
         } catch (e: Exception) {
             Tags("", "", "", "", 0L, 0)

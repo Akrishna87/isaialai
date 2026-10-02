@@ -8,17 +8,19 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import io.github.akrishna87.mymusic.ui.MusicApp
 import io.github.akrishna87.mymusic.ui.MyMusicTheme
+import io.github.akrishna87.mymusic.ui.ThemeSettings
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        // The app is always dark, so keep the status and navigation bar icons light.
+        // Light status-bar icons to start with; the app switches them when the theme is light.
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
+        ThemeSettings.load(this)
         setContent {
-            MyMusicTheme {
+            MyMusicTheme(ThemeSettings.mode, ThemeSettings.wallpaperColors) {
                 MusicApp()
             }
         }

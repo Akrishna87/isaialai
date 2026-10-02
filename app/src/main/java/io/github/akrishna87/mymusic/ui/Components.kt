@@ -33,15 +33,22 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import io.github.akrishna87.mymusic.AlbumGroup
 import io.github.akrishna87.mymusic.ArtLoader
 import io.github.akrishna87.mymusic.ArtistGroup
+import io.github.akrishna87.mymusic.LibraryGrouping
+import io.github.akrishna87.mymusic.SmartPlaylist
+import io.github.akrishna87.mymusic.SongEdits
 import io.github.akrishna87.mymusic.MusicViewModel
 import io.github.akrishna87.mymusic.NameRequest
 import io.github.akrishna87.mymusic.Screen
@@ -169,7 +176,11 @@ fun SongMenu(vm: MusicViewModel, song: Song, expanded: Boolean, onDismiss: () ->
         MenuItem("Add to playlist…", Icons.AutoMirrored.Rounded.PlaylistAdd) { onDismiss(); vm.playlistPickerFor = song }
         MenuItem("Go to album", Icons.Rounded.Album) { onDismiss(); vm.open(Screen.Album(song.albumKey)) }
         MenuItem("Go to artist", Icons.Rounded.Person) { onDismiss(); vm.open(Screen.Artist(song.artist)) }
+        LibraryGrouping.composerNames(song.composer).firstOrNull()?.let { composer ->
+            MenuItem("Go to music director", Icons.Rounded.LibraryMusic) { onDismiss(); vm.open(Screen.Composer(composer)) }
+        }
         MenuItem("Go to folder", Icons.Rounded.Folder) { onDismiss(); vm.open(Screen.Folder(song.folder)) }
+        MenuItem("Edit song details…", Icons.Rounded.Edit) { onDismiss(); vm.editing = song }
         if (playlistId != null) {
             MenuItem("Remove from this playlist", Icons.Rounded.RemoveCircleOutline) { onDismiss(); vm.playlists.remove(playlistId, song.id) }
         }
@@ -196,7 +207,7 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun AlbumCard(album: AlbumGroup, onClick: () -> Unit, size: Dp = 150.dp) {
+fun AlbumCard(album: AlbumGroup, onClick: () -> Unit, size: Dp = 150.dp, subtitle: String = album.artist) {
     Column(Modifier.width(size).clickable(onClick = onClick)) {
         ArtImage(
             album.songs.first(),
@@ -207,17 +218,17 @@ fun AlbumCard(album: AlbumGroup, onClick: () -> Unit, size: Dp = 150.dp) {
         )
         Spacer(Modifier.height(8.dp))
         Text(album.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
-        Text(album.artist, color = Palette.SubText, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
+        Text(subtitle, color = Palette.SubText, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
     }
 }
 
 @Composable
-fun ArtistBubble(artist: ArtistGroup, onClick: () -> Unit, size: Dp = 120.dp) {
+fun ArtistBubble(artist: ArtistGroup, onClick: () -> Unit, size: Dp = 120.dp, label: String = "Artist") {
     Column(Modifier.width(size).clickable(onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally) {
         ArtImage(artist.songs.first(), Modifier.size(size), sizePx = 300, shape = CircleShape, iconSize = 36.dp)
         Spacer(Modifier.height(8.dp))
         Text(artist.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
-        Text("Artist", color = Palette.SubText, fontSize = 13.sp)
+        Text(label, color = Palette.SubText, fontSize = 13.sp)
     }
 }
 
@@ -239,7 +250,7 @@ fun PlayCircleButton(onClick: () -> Unit, playing: Boolean = false, size: Dp = 5
         enabled = enabled,
         shape = CircleShape,
         color = MaterialTheme.colorScheme.primary,
-        contentColor = Color.Black,
+        contentColor = Palette.OnAccent,
         shadowElevation = 6.dp,
         modifier = Modifier.size(size),
     ) {
@@ -273,6 +284,7 @@ fun SeekBar(
         modifier
             .fillMaxWidth()
             .height(28.dp)
+            .semantics { contentDescription = "Seek bar" }
             .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
                 detectTapGestures { o -> seek((o.x / size.width).coerceIn(0f, 1f)) }
@@ -359,5 +371,75 @@ fun NameDialog(request: NameRequest, onDismiss: () -> Unit) {
             TextButton(enabled = name.isNotBlank(), onClick = { request.onSave(name.trim()); onDismiss() }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+fun smartIcon(kind: SmartPlaylist): ImageVector = when (kind) {
+    SmartPlaylist.MOST_PLAYED -> Icons.Rounded.Whatshot
+    SmartPlaylist.RECENTLY_ADDED -> Icons.Rounded.NewReleases
+    SmartPlaylist.NOT_PLAYED_LATELY -> Icons.Rounded.History
+    SmartPlaylist.NEVER_PLAYED -> Icons.Rounded.AutoAwesome
+}
+
+/** Fix a song's title, artist, album, music director or year. Kept in the app; the file isn't changed. */
+@Composable
+fun EditSongDialog(vm: MusicViewModel, song: Song, onDismiss: () -> Unit) {
+    var title by remember(song.id) { mutableStateOf(song.title) }
+    var artist by remember(song.id) { mutableStateOf(song.artist.takeIf { it != Song.UNKNOWN_ARTIST }.orEmpty()) }
+    var album by remember(song.id) { mutableStateOf(song.album) }
+    var composer by remember(song.id) { mutableStateOf(song.composer) }
+    var year by remember(song.id) { mutableStateOf(song.year.takeIf { it > 0 }?.toString().orEmpty()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Palette.Elevated,
+        title = { Text("Edit song details") },
+        text = {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item { EditField("Title", title) { title = it } }
+                item { EditField("Artist", artist) { artist = it } }
+                item { EditField("Album or movie", album) { album = it } }
+                item { EditField("Music director", composer) { composer = it } }
+                item { EditField("Year", year, numbers = true) { year = it.filter(Char::isDigit).take(4) } }
+                item {
+                    Text(
+                        "Changes are kept in Isaialai. The song file itself isn't changed, so other apps still see the original details.",
+                        color = Palette.SubText,
+                        fontSize = 12.sp,
+                    )
+                }
+                if (vm.isEdited(song)) {
+                    item {
+                        TextButton(onClick = { onDismiss(); vm.saveEdit(song, null) }) { Text("Undo my changes") }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = title.isNotBlank(),
+                onClick = {
+                    onDismiss()
+                    vm.saveEdit(song, SongEdits.Edit(title, artist, album, composer, year.toIntOrNull() ?: 0))
+                },
+            ) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun EditField(label: String, value: String, numbers: Boolean = false, onChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { onChange(it.take(120)) },
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = if (numbers) KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default,
+        trailingIcon = {
+            if (value.isNotEmpty()) {
+                IconButton(onClick = { onChange("") }) { Icon(Icons.Rounded.Close, contentDescription = "Clear $label") }
+            }
+        },
+        modifier = Modifier.fillMaxWidth(),
     )
 }
