@@ -134,12 +134,14 @@ object AddedFolders {
                     val modified = if (c.isNull(4)) 0L else c.getLong(4)
                     val t = tags.get(context, uri, "${if (c.isNull(3)) 0 else c.getLong(3)}/$modified")
                     if (t.durationMs in 1 until 10_000) continue // a sound effect, not a song
+                    val title = t.title.ifBlank { name.substringBeforeLast('.') }
+                    val album = AlbumNames.resolve(t.album, "", title)
                     out += Song(
                         id = uri.toString(),
-                        title = t.title.ifBlank { name.substringBeforeLast('.') },
+                        title = title,
                         artist = t.artist.ifBlank { Song.UNKNOWN_ARTIST },
-                        album = t.album,
-                        albumKey = if (t.album.isNotBlank()) "tag:${t.albumArtist.lowercase()}|${t.album.lowercase()}" else "dir:$dirPath",
+                        album = album,
+                        albumKey = AlbumNames.keyFor(album, uri.toString()),
                         albumId = 0,
                         durationMs = t.durationMs,
                         track = t.track,

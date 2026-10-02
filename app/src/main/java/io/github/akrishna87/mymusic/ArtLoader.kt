@@ -23,7 +23,8 @@ object ArtLoader {
     private val missing: MutableSet<String> = Collections.synchronizedSet(HashSet())
     private val limiter = Semaphore(4)
 
-    private fun key(song: Song, size: Int) = "${song.id}@$size"
+    // The cover version is part of the key, so a newly chosen cover shows straight away.
+    private fun key(song: Song, size: Int) = "${song.id}@$size#${CustomArt.version}"
 
     fun cached(song: Song, size: Int): Bitmap? = cache.get(key(song, size))
 
@@ -45,10 +46,13 @@ object ArtLoader {
      * Songs from added folders are read directly.
      */
     fun artworkUriFor(song: Song): Uri =
-        if (song.id.toLongOrNull() != null && Build.VERSION.SDK_INT < 29) song.albumArtUri else song.uri
+        CustomArt.uriFor(song.id)
+            ?: if (song.id.toLongOrNull() != null && Build.VERSION.SDK_INT < 29) song.albumArtUri else song.uri
 
     fun decode(context: Context, uri: Uri, size: Int): Bitmap? = try {
         when {
+            CustomArt.isCoverUri(uri) ->
+                CustomArt.fileFor(context, uri)?.readBytes()?.let { decodeBytes(it, size) }
             uri.authority == MediaStore.AUTHORITY && uri.path.orEmpty().contains("/albumart") ->
                 context.contentResolver.openInputStream(uri)?.use { decodeBytes(it.readBytes(), size) }
             uri.authority == MediaStore.AUTHORITY && Build.VERSION.SDK_INT >= 29 ->

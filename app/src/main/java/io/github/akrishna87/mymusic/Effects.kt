@@ -32,8 +32,16 @@ object Effects {
     /** Written by the service: false if this phone can't boost (no loudness enhancer effect). */
     const val KEY_BOOST_AVAILABLE = "boost_available"
 
+    /** Continue where you left off: "off", "long" (tracks of 10+ minutes) or "all". */
+    const val KEY_RESUME_MODE = "resume_mode"
+    /** Written by the service when it continues a song part-way: "<title>|<position ms>|<time>". */
+    const val KEY_RESUMED = "resumed"
+
     /** Keys the service writes for the screens to show, rather than settings it should act on. */
-    val STATUS_KEYS = setOf(KEY_INFO, KEY_SLEEP_UNTIL, KEY_SLEEP_END_OF_SONG, KEY_EVEN_VOLUME_NOW, KEY_BOOST_AVAILABLE)
+    val STATUS_KEYS = setOf(KEY_INFO, KEY_SLEEP_UNTIL, KEY_SLEEP_END_OF_SONG, KEY_EVEN_VOLUME_NOW, KEY_BOOST_AVAILABLE, KEY_RESUMED)
+
+    fun resumeMode(p: SharedPreferences): ResumeMode =
+        ResumeMode.entries.firstOrNull { it.key == p.getString(KEY_RESUME_MODE, null) } ?: ResumeMode.LONG
 
     fun boostPercent(p: SharedPreferences): Int = p.getInt(KEY_BOOST, 100).coerceIn(100, MAX_BOOST)
 
@@ -108,5 +116,54 @@ object Effects {
             .putString(KEY_LEVELS, s.levels.joinToString(","))
             .putInt(KEY_BASS, s.bass)
             .apply()
+    }
+}
+
+enum class ResumeMode(val key: String, val label: String) {
+    OFF("off", "Off"),
+    LONG("long", "Long tracks"),
+    ALL("all", "All songs"),
+    ;
+
+    /** Whether a song this long continues where it was left. */
+    fun applies(durationMs: Long): Boolean = when (this) {
+        OFF -> false
+        LONG -> durationMs >= 10 * 60_000L
+        ALL -> durationMs > 0
+    }
+}
+
+/**
+ * Where each song was left, for "continue where you left off". Kept per song, with its length
+ * and when it was last played, in the "resume" preferences.
+ */
+object ResumePoints {
+    const val PREFS = "resume"
+
+    data class Point(val songId: String, val positionMs: Long, val durationMs: Long, val at: Long)
+
+    fun prefs(context: android.content.Context): SharedPreferences =
+        context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
+
+    fun get(p: SharedPreferences, songId: String): Point? = parse(songId, p.getString(songId, null))
+
+    fun all(p: SharedPreferences): List<Point> = p.all.mapNotNull { (k, v) -> parse(k, v as? String) }.sortedByDescending { it.at }
+
+    /** Remembers [positionMs], or forgets the song if it's near the start or the end (finished). */
+    fun save(p: SharedPreferences, songId: String, positionMs: Long, durationMs: Long) {
+        if (songId.isEmpty() || durationMs <= 0) return
+        val e = p.edit()
+        if (positionMs < 10_000 || durationMs - positionMs < 15_000) e.remove(songId)
+        else e.putString(songId, "$positionMs|$durationMs|${System.currentTimeMillis()}")
+        e.apply()
+    }
+
+    private fun parse(id: String, v: String?): Point? {
+        val parts = v?.split('|') ?: return null
+        if (parts.size != 3) return null
+        val pos = parts[0].toLongOrNull() ?: return null
+        val dur = parts[1].toLongOrNull() ?: return null
+        val at = parts[2].toLongOrNull() ?: return null
+        return Point(id, pos, dur, at)
     }
 }

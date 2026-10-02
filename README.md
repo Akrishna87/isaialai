@@ -98,6 +98,22 @@ A one-line-per-feature list, ready to share, is in [FEATURES.md](FEATURES.md).
     seconds from eight places across it) and remembered. Turning up uses
     Android's loudness enhancer, which keeps loud parts from distorting.
     Settings shows how much the current song was changed.
+- **Movies, even for downloaded songs**: many downloaded songs have no album
+  saved in them, and Android then calls their album after the folder
+  ("Download"). Isaialai doesn't group those into a made-up album. It reads
+  the movie from titles like "Arabic Kuthu (From "Beast")", and you can set it
+  yourself in Edit song details. On Home, **Jump back in** opens the movie for
+  songs that have one and plays the song itself for songs that don't.
+- **Change cover art**: a song's ⋮ menu → **Change cover art…**, or the
+  picture button on an album page, works whether or not the song already
+  has art. Pick any picture from your phone for just that song or the whole
+  album or movie. Isaialai keeps its own copy, and the song files aren't
+  changed. The cover shows everywhere: lists, the player, the notification,
+  the lock screen and the widget. **Use the cover from the file** undoes it.
+- **Continue where you left off**: songs pick up where you stopped them. In
+  Settings choose Long tracks (10 minutes or more: talks, concerts,
+  podcasts; the default), All songs, or Off. Home shows a **Continue
+  listening** row with how much is left. Tap ⏮ to start a song over.
 - **Edit song details**: a song's ⋮ menu → **Edit song details…** to fix
   its title, artist, album or movie, music director or year. Edits are kept
   in Isaialai (the song file isn't changed, so other apps still see the

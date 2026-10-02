@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.akrishna87.mymusic.Effects
 import io.github.akrishna87.mymusic.MusicViewModel
+import io.github.akrishna87.mymusic.ResumeMode
 import io.github.akrishna87.mymusic.Screen
 import java.util.Locale
 import kotlin.math.abs
@@ -53,6 +54,7 @@ fun SettingsScreen(vm: MusicViewModel) {
             item { AppearanceCard() }
             item { SettingsHeading("Playback") }
             item { CrossfadeCard(vm) }
+            item { ResumeCard(vm) }
             item { EvenVolumeCard(vm) }
             item { SettingsCard { BoostControls(vm) } }
             item { SettingsHeading("Tools") }
@@ -140,6 +142,27 @@ private fun CrossfadeCard(vm: MusicViewModel) {
             steps = 11,
             modifier = Modifier.semantics { contentDescription = "Crossfade length" },
         )
+    }
+}
+
+@Composable
+private fun ResumeCard(vm: MusicViewModel) {
+    SettingsCard {
+        Text("Continue where you left off", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+        Text(
+            when (vm.resumeMode) {
+                ResumeMode.OFF -> "Songs always start from the beginning."
+                ResumeMode.LONG -> "Tracks of 10 minutes or more (talks, concerts, podcasts) continue where you stopped them."
+                ResumeMode.ALL -> "Every song continues where you stopped it. Tap ⏮ to start one over."
+            },
+            color = Palette.SubText,
+            fontSize = 13.sp,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            ResumeMode.entries.forEach { mode ->
+                FilterChip(selected = vm.resumeMode == mode, onClick = { vm.chooseResumeMode(mode) }, label = { Text(mode.label) })
+            }
+        }
     }
 }
 

@@ -20,6 +20,8 @@ fail() {
     echo "On screen:"; grep -o 'text="[^"]\+"' "$OUT/failure.xml" | head -40 || true
   fi
   adb logcat -d > "$OUT/logcat.txt" || true
+  echo "App log (errors and warnings):"
+  grep -E "AndroidRuntime|FATAL|mymusic|ExoPlayer|MediaSession" "$OUT/logcat.txt" | grep -E " [EWF] " | tail -40 || true
   exit 1
 }
 dump() {
@@ -51,6 +53,19 @@ scroll_down() { # swipe up on the middle of the screen
   sleep 1
 }
 playing() { session; grep -Eq "\{state=(PLAYING|3)" "$OUT/session.txt"; }
+tap_clear() { # tap_clear <text>: scroll until <text> is above the mini player, then tap it
+  local i b x1 y1 x2 y2 h
+  h=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); h=${h#*x}
+  for i in 1 2 3 4; do
+    dump clear
+    if b=$(python3 "$HERE/find_text.py" "$OUT/clear.xml" "$1" bounds 2> /dev/null); then
+      read -r x1 y1 x2 y2 <<<"$b"
+      if [ $(((y1 + y2) / 2)) -lt $((h * 68 / 100)) ]; then adb shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2)); return 0; fi
+    fi
+    scroll_down
+  done
+  fail "couldn't get '$1' clear of the mini player to tap it"
+}
 chip() { # chip <name>: tap a Library tab chip, scrolling the chip row sideways if it's out of view
   local i y xy
   for i in 1 2 3 4 5 6; do
@@ -83,13 +98,19 @@ adb push "$SONGS/hidden.mp3" /sdcard/Music/Hidden/ > /dev/null
 adb push "$SONGS/hidden.lrc" /sdcard/Music/Hidden/ > /dev/null
 adb shell mkdir -p /sdcard/Music/LoudTest
 adb push "$SONGS/loud.mp3" /sdcard/Music/LoudTest/ > /dev/null
+# Downloaded songs with no album saved (Android calls their album "Download"), and a picture.
+adb push "$SONGS/arabic-test.mp3" /sdcard/Download/ > /dev/null
+adb push "$SONGS/plain-download.mp3" /sdcard/Download/ > /dev/null
+adb shell mkdir -p /sdcard/Pictures
+adb push "$SONGS/red-cover.png" /sdcard/Pictures/ > /dev/null
 # The same song in two folders, for the duplicate finder.
 adb shell mkdir -p /sdcard/Music/TwinA /sdcard/Music/TwinB
 adb push "$SONGS/twin.mp3" /sdcard/Music/TwinA/ > /dev/null
 adb push "$SONGS/twin.mp3" /sdcard/Music/TwinB/ > /dev/null
 adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null 2>&1 || true
 for _ in $(seq 1 30); do
-  [ "$(adb shell content query --uri content://media/external/audio/media --projection title | grep -c "Twin Song")" -ge 2 ] && break
+  lib=$(adb shell content query --uri content://media/external/audio/media --projection title)
+  [ "$(grep -c "Twin Song" <<<"$lib")" -ge 2 ] && grep -q "Plain Download Song" <<<"$lib" && break
   sleep 2
 done
 adb shell content query --uri content://media/external/audio/media --projection title:is_music:is_podcast:relative_path || true
@@ -538,11 +559,21 @@ adb shell input keyevent KEYCODE_MEDIA_NEXT
 sleep 3
 [ "$(now_playing)" = "$B" ] || fail "after moving songs, the next song played wasn't $B"
 echo "PASS: dragging a song in Up next changes what plays next"
-dump queue-before-remove
-XY=$(python3 "$HERE/find_text.py" "$OUT/queue-before-remove.xml" "Up next: $C") || fail "$C isn't in Up next"
-Y=${XY#* }
-adb shell input swipe $((W * 60 / 100)) "$Y" $((W * 5 / 100)) "$Y" 250 # swipe $C away
-sleep 2
+swipe_away() { # swipe the Up next row of $1 to the left, at a natural speed
+  local xy y
+  dump queue-before-remove
+  xy=$(python3 "$HERE/find_text.py" "$OUT/queue-before-remove.xml" "Up next: $1") || fail "$1 isn't in Up next"
+  y=${xy#* }
+  adb shell input swipe $((W * 70 / 100)) "$y" $((W * 5 / 100)) "$y" 600
+  sleep 2
+}
+sleep 1
+swipe_away "$C"
+dump queue-removed
+if python3 "$HERE/find_text.py" "$OUT/queue-removed.xml" "Up next: $C" > /dev/null 2>&1; then
+  echo "(note: the first swipe didn't register on the emulator; swiping again)"
+  swipe_away "$C"
+fi
 dump queue-removed
 shot 16c-up-next-removed
 python3 "$HERE/up_next.py" "$OUT/queue-removed.xml" "$B" > "$OUT/queue-removed.txt" || true
@@ -625,9 +656,7 @@ tap settings "5 s" # crossfade
 sleep 1
 dump settings-xfade
 grep -q 'Crossfade: 5 s' "$OUT/settings-xfade.xml" || fail "choosing a 5 s crossfade didn't stick"
-scroll_down # Even volume is at the bottom, under the mini player
-dump settings-scrolled
-tap settings-scrolled "Even volume"
+tap_clear "Even volume"
 sleep 3 # long enough to measure the song playing now
 dump settings-on
 grep -q "turned up\|turned down\|already at the right level" "$OUT/settings-on.xml" \
@@ -640,9 +669,13 @@ dump songs-loud
 tap songs-loud "Loud Song"
 sleep 6 # long enough to measure it
 open_settings
-scroll_down # the level line is under Even volume, near the bottom
-dump settings-loud
+for _ in 1 2 3; do
+  scroll_down # the level line is under Even volume, near the bottom
+  dump settings-loud
+  grep -q "Now playing" "$OUT/settings-loud.xml" && break
+done
 shot 23-even-volume
+echo "Even volume line: $(grep -o 'Now playing[^"]*' "$OUT/settings-loud.xml" || echo '(none)')"
 grep -q "Loud Song.*turned down" "$OUT/settings-loud.xml" || fail "even volume didn't turn the loud song down"
 echo "PASS: even volume turns a loud song down"
 adb shell input keyevent KEYCODE_BACK
@@ -751,7 +784,7 @@ shot 29-lock-screen
 grep -q 'content-desc="Lock screen player"' "$OUT/lock.xml" || fail "waking the locked phone didn't show the player over the lock screen"
 grep -q 'text="Library"' "$OUT/lock.xml" && fail "the library is reachable from the lock screen"
 LOCK_SONG=$(now_playing)
-grep -q "text=\"$LOCK_SONG\"" "$OUT/lock.xml" || fail "the lock-screen player doesn't show the song that's playing"
+python3 "$HERE/find_text.py" "$OUT/lock.xml" "$LOCK_SONG" exact > /dev/null || fail "the lock-screen player doesn't show the song that's playing ($LOCK_SONG)"
 # The heart: like the song (or unlike it, if it's already liked) without unlocking.
 if grep -q 'content-desc="Remove from Liked songs"' "$OUT/lock.xml"; then BEFORE="Remove from Liked songs"; AFTER="Like"; else BEFORE="Like"; AFTER="Remove from Liked songs"; fi
 tap lock "$BEFORE"
@@ -771,6 +804,151 @@ grep -q 'text="Library"' "$OUT/unlocked.xml" || fail "unlocking didn't go back t
 grep -q "content-desc=\"$AFTER\"" "$OUT/unlocked.xml" || fail "the heart tapped on the lock screen wasn't saved"
 adb shell locksettings clear --old 1111 > /dev/null
 echo "PASS: the player shows over the lock screen, and only the player; its heart likes the song"
+
+echo "--- Downloaded songs: movie albums, not a 'Download' album"
+dump nav-lib
+tap nav-lib "Library"
+sleep 2
+chip "Albums"
+sleep 2
+dump albums-movies
+grep -q 'text="Download"' "$OUT/albums-movies.xml" && fail "the Download folder shows up as an album"
+if ! grep -q 'text="Test Movie"' "$OUT/albums-movies.xml"; then scroll_down; dump albums-movies; fi
+shot 30-movie-album
+grep -q 'text="Test Movie"' "$OUT/albums-movies.xml" || fail "the movie named in the title (From \"Test Movie\") isn't an album"
+echo "PASS: songs without an album aren't lumped into 'Download'; the movie is read from the title"
+chip "Songs"
+sleep 2
+dump songs-dl
+tap songs-dl "Arabic Test"
+sleep 4
+dump songs-dl2
+tap songs-dl2 "Plain Download Song"
+sleep 4
+dump to-home
+tap to-home "Home"
+sleep 3
+dump home-recent
+shot 31-jump-back-in
+grep -q 'text="Jump back in"' "$OUT/home-recent.xml" || fail "Home has no Jump back in row"
+grep -q 'text="Download"' "$OUT/home-recent.xml" && fail "Jump back in shows the Download folder"
+grep -q 'text="Plain Download Song"' "$OUT/home-recent.xml" || fail "a recently played song with no album isn't shown as itself"
+grep -q 'text="Test Movie"' "$OUT/home-recent.xml" || fail "Jump back in doesn't show the movie of a recently played song"
+tap home-recent "Test Movie"
+sleep 3
+dump movie-page
+grep -q 'text="Album"\|text="Album · ' "$OUT/movie-page.xml" || grep -q 'Album ·' "$OUT/movie-page.xml" || fail "tapping the movie in Jump back in didn't open its album page"
+python3 "$HERE/find_text.py" "$OUT/movie-page.xml" "Arabic Test" > /dev/null || fail "the movie page doesn't list its song"
+echo "PASS: Jump back in opens the movie, and shows songs without one as themselves"
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+
+echo "--- Change cover art (song with no cover)"
+adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null 2>&1 || true
+dump nav-lib2
+tap nav-lib2 "Library"
+sleep 2
+chip "Songs"
+sleep 2
+dump songs-cover
+tap songs-cover "More options for Plain Download Song"
+sleep 1
+dump cover-menu
+tap cover-menu "Change cover art"
+sleep 2
+dump cover-dialog
+shot 32-cover-dialog
+tap cover-dialog "Choose picture"
+sleep 4
+dump picker-photos
+shot 33-photo-picker
+PHOTO=$(python3 - "$OUT/picker-photos.xml" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+for n in ET.parse(sys.argv[1]).iter("node"):
+    d = (n.get("content-desc") or "").lower()
+    if d.startswith("photo") or "photo taken" in d or d.startswith("image"):
+        x1, y1, x2, y2 = map(int, re.findall(r"\d+", n.get("bounds")))
+        print((x1 + x2) // 2, (y1 + y2) // 2)
+        break
+PY
+)
+[ -n "$PHOTO" ] || fail "the photo picker doesn't show the picture"
+adb shell input tap $PHOTO
+sleep 5
+dump after-cover
+grep -q "Cover changed" "$OUT/after-cover.xml" || echo "(note: didn't catch the 'Cover changed' message)"
+tap after-cover "Plain Download Song" last # the mini player: it's the song playing
+sleep 3
+shot 34-custom-cover
+read -r R G B < <(adb exec-out screencap | python3 "$HERE/pixel.py" $((W / 2)) $((H * 38 / 100)))
+echo "cover colour on the full player: $R $G $B"
+[ "$R" -ge 170 ] && [ "$G" -le 90 ] && [ "$B" -le 90 ] || fail "the chosen (red) cover isn't shown on the full player"
+echo "PASS: any song's cover can be changed to a picture from the phone"
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+
+echo "--- Continue where you left off"
+dump home-gear-resume
+tap home-gear-resume "Home"
+sleep 2
+dump home-gear-resume2
+tap home-gear-resume2 "Settings"
+sleep 2
+tap_clear "All songs"
+sleep 1
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+dump nav-lib3
+tap nav-lib3 "Library"
+sleep 2
+chip "Songs"
+sleep 2
+dump songs-resume
+tap songs-resume "Smoke Song 1"
+sleep 3
+dump resume-mini
+tap resume-mini "Smoke Song 1" last
+sleep 2
+dump resume-player
+read -r X1 Y1 X2 Y2 < <(python3 "$HERE/find_text.py" "$OUT/resume-player.xml" "Seek bar" bounds) || fail "no seek bar"
+adb shell input tap $((X1 + (X2 - X1) / 2)) $(((Y1 + Y2) / 2)) # half way: 0:30
+sleep 3
+session
+LEFT_AT=$(grep -o "position=[0-9]*" "$OUT/session.txt" | head -1 | cut -d= -f2 || true)
+echo "left Smoke Song 1 at $LEFT_AT ms"
+adb shell input keyevent KEYCODE_BACK # close the player
+sleep 1
+dump songs-resume2
+tap songs-resume2 "Smoke Song 2" # play something else
+sleep 4
+dump songs-resume3
+tap songs-resume3 "Smoke Song 1" # and back again
+sleep 3
+dump resumed
+session
+BACK_AT=$(grep -o "position=[0-9]*" "$OUT/session.txt" | head -1 | cut -d= -f2 || true)
+echo "Smoke Song 1 started again at $BACK_AT ms"
+[ "$(now_playing)" = "Smoke Song 1" ] || fail "tapping Smoke Song 1 again didn't play it"
+[ "${BACK_AT:-0}" -ge 25000 ] || fail "Smoke Song 1 started from the beginning instead of where it was left"
+grep -q "Continuing" "$OUT/resumed.xml" && echo "(the app said it's continuing)"
+adb shell input keyevent KEYCODE_MEDIA_PAUSE
+sleep 2
+dump home-continue0
+tap home-continue0 "Home"
+sleep 3
+dump home-continue
+shot 35-continue-listening
+grep -q 'text="Continue listening"' "$OUT/home-continue.xml" || fail "Home doesn't show Continue listening"
+echo "PASS: songs continue where they were left, and Home lists them"
+dump home-gear-resume3
+tap home-gear-resume3 "Settings"
+sleep 2
+tap_clear "Long tracks" # back to the default
+sleep 1
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+adb shell input keyevent KEYCODE_MEDIA_PLAY
+sleep 2
 
 echo "--- Android Auto"
 # Android prints the service either as "pkg/.PlaybackService" or "name=pkg.PlaybackService".

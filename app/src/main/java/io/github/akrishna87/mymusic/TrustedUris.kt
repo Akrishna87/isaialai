@@ -20,7 +20,7 @@ class TrustedUris(private val context: Context) {
     fun isSong(uri: Uri): Boolean = isLibrarySong(uri) || isInAddedFolder(uri)
 
     /** Cover art the notification may load. */
-    fun isArt(uri: Uri): Boolean = isSong(uri) || isLibraryAlbumArt(uri)
+    fun isArt(uri: Uri): Boolean = isSong(uri) || isLibraryAlbumArt(uri) || CustomArt.isCoverUri(uri)
 
     /** content://media/<volume>/audio/media/<id> */
     private fun isLibrarySong(uri: Uri): Boolean = isMediaStore(uri, "media")

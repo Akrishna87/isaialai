@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.akrishna87.mymusic.AlbumGroup
 import io.github.akrishna87.mymusic.ArtistGroup
 import io.github.akrishna87.mymusic.LibraryGrouping
 import io.github.akrishna87.mymusic.MusicViewModel
@@ -53,9 +54,14 @@ fun HomeScreen(vm: MusicViewModel) {
     val history = vm.history
     val counts = vm.countsVersion
 
-    val recentAlbums = remember(history, albumByKey) {
-        history.mapNotNull { byId[it]?.albumKey }.distinct().mapNotNull { albumByKey[it] }.take(12)
+    // Recently played: each song's movie or album, or the song itself if it doesn't have one.
+    val jumpBackIn = remember(history, albumByKey) {
+        history.mapNotNull { byId[it] }
+            .distinctBy { it.albumKey }
+            .map { s -> albumByKey[s.albumKey] ?: s }
+            .take(12)
     }
+    val recentAlbums = remember(jumpBackIn) { jumpBackIn.filterIsInstance<AlbumGroup>() }
     val newest = remember(albums) { albums.sortedByDescending { a -> a.songs.maxOf { it.dateAdded } }.take(12) }
     val topArtists = remember(artists, counts) {
         artists.sortedWith(
@@ -67,6 +73,9 @@ fun HomeScreen(vm: MusicViewModel) {
     }
     // A different handful of albums each day.
     val rediscover = remember(albums) { albums.shuffled(Random(LocalDate.now().toEpochDay())).take(10) }
+
+    val resumeVersion = vm.resumeVersion
+    val continueListening = remember(byId, resumeVersion, vm.resumeMode) { vm.continueListening() }
 
     val tint = rememberArtColor(history.firstNotNullOfOrNull { byId[it] } ?: songs.firstOrNull())
 
@@ -97,8 +106,17 @@ fun HomeScreen(vm: MusicViewModel) {
             QuickTiles(vm, songs, if (recentAlbums.size >= 2) recentAlbums else newest)
         }
         item {
-            CardRow("Jump back in", recentAlbums, { it.key }) { a ->
-                AlbumCard(a, onClick = { vm.open(Screen.Album(a.key)) })
+            CardRow("Continue listening", continueListening, { "c:" + it.first.id }) { (song, point) ->
+                ContinueCard(song, point, onClick = { vm.play(listOf(song), 0, from = "Continue listening") })
+            }
+        }
+        item {
+            CardRow<Any>("Jump back in", jumpBackIn, { if (it is Song) "s:" + it.id else "a:" + (it as AlbumGroup).key }) { item ->
+                when (item) {
+                    is AlbumGroup -> AlbumCard(item, onClick = { vm.open(Screen.Album(item.key)) })
+                    is Song -> SongCard(item, onClick = { vm.play(listOf(item), 0, from = "Recently played") })
+                    else -> Unit
+                }
             }
         }
         item {
@@ -126,7 +144,7 @@ fun HomeScreen(vm: MusicViewModel) {
 
 /** Two columns of quick shortcuts: Liked songs, Shuffle all, and recent albums. */
 @Composable
-private fun QuickTiles(vm: MusicViewModel, songs: List<Song>, albums: List<io.github.akrishna87.mymusic.AlbumGroup>) {
+private fun QuickTiles(vm: MusicViewModel, songs: List<Song>, albums: List<AlbumGroup>) {
     val liked = vm.playlists.liked
     val tiles = buildList<@Composable RowScope.() -> Unit> {
         add {
@@ -188,5 +206,28 @@ private fun SongCard(song: Song, onClick: () -> Unit) {
         Spacer(Modifier.height(8.dp))
         Text(song.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
         Text(song.artist, color = Palette.SubText, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
+    }
+}
+
+/** A song left part-way: its cover with how far you got, and the time left. */
+@Composable
+private fun ContinueCard(song: Song, point: io.github.akrishna87.mymusic.ResumePoints.Point, onClick: () -> Unit) {
+    val left = ((point.durationMs - point.positionMs) / 60_000).coerceAtLeast(1)
+    Column(Modifier.width(150.dp).clickable(onClick = onClick)) {
+        Box {
+            ArtImage(song, Modifier.size(150.dp).shadow(8.dp, RoundedCornerShape(6.dp)), sizePx = 400, shape = RoundedCornerShape(6.dp), iconSize = 40.dp)
+            Box(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(8.dp).height(4.dp)
+                    .clip(RoundedCornerShape(2.dp)).background(androidx.compose.ui.graphics.Color.White.copy(alpha = 0.35f)),
+            ) {
+                Box(
+                    Modifier.fillMaxWidth((point.positionMs.toFloat() / point.durationMs).coerceIn(0f, 1f)).fillMaxHeight()
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(song.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
+        Text("$left min left", color = Palette.SubText, maxLines = 1, fontSize = 13.sp)
     }
 }

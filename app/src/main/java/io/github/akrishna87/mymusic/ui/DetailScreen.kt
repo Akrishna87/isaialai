@@ -16,6 +16,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -168,6 +169,11 @@ fun DetailScreen(vm: MusicViewModel, screen: Screen) {
                 Text(detail?.title.orEmpty(), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             if (!scrolled || detail == null) Spacer(Modifier.weight(1f))
+            if (detail?.kind == DetailKind.ALBUM) {
+                detail.songs.firstOrNull()?.let { first ->
+                    IconButton(onClick = { vm.requestCover(first) }) { Icon(Icons.Rounded.Image, "Change cover art") }
+                }
+            }
             val id = detail?.playlistId
             if (id != null && detail?.kind == DetailKind.PLAYLIST) {
                 IconButton(onClick = {
