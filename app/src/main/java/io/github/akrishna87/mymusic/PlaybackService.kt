@@ -120,7 +120,7 @@ class PlaybackService : MediaLibraryService() {
     private var fadePlayer: ExoPlayer? = null
     private var fade: Fade? = null
     private var handoverJob: Job? = null
-    private class Fade(val toIndex: Int, val toId: String, val lengthMs: Long) {
+    private class Fade(val toId: String, val lengthMs: Long) {
         var handingOver = false
     }
 
@@ -166,6 +166,9 @@ class PlaybackService : MediaLibraryService() {
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (isPlaying) errorStreak = 0
+                // Mid-crossfade, the incoming song stops and starts with this one. This also covers
+                // phone calls and other apps' sounds, which silence the player without pausing it.
+                if (fade?.handingOver == false) fadePlayer?.playWhenReady = isPlaying
                 savePosition()
                 PlayerWidget.update(this@PlaybackService, player)
             }
@@ -173,8 +176,6 @@ class PlaybackService : MediaLibraryService() {
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 // "End of this song" sleep timer: the player has just paused at the end of the song.
                 if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) clearSleep()
-                // Pausing mid-crossfade pauses both songs.
-                if (fade?.handingOver == false) fadePlayer?.playWhenReady = playWhenReady
             }
 
             override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
@@ -185,7 +186,7 @@ class PlaybackService : MediaLibraryService() {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 fade?.let { f ->
                     if (f.handingOver) return@let
-                    if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && player.currentMediaItemIndex == f.toIndex) startHandover(f)
+                    if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && mediaItem?.mediaId == f.toId) startHandover(f)
                     else cancelFade() // skipped, or the queue changed
                 }
                 updateEvenVolume()
@@ -198,7 +199,13 @@ class PlaybackService : MediaLibraryService() {
             }
 
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
-                if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) saveQueue()
+                if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) {
+                    // Songs added, moved or removed mid-crossfade: the next song may have changed.
+                    if (fade?.handingOver == false && player.nextMediaItemIndex.let { it == C.INDEX_UNSET || player.getMediaItemAt(it).mediaId != fade?.toId }) {
+                        cancelFade()
+                    }
+                    saveQueue()
+                }
             }
 
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
@@ -475,10 +482,11 @@ class PlaybackService : MediaLibraryService() {
                 fadePlayer = it
             }
         fp.setMediaItem(item)
+        fp.playbackParameters = player.playbackParameters // same speed and pitch
         fp.volume = 0f
         fp.prepare()
         fp.play()
-        fade = Fade(next, item.mediaId, remaining.coerceAtLeast(600))
+        fade = Fade(item.mediaId, remaining.coerceAtLeast(600))
     }
 
     /**
