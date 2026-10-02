@@ -83,7 +83,7 @@ old one and keeps your playlists.
     cover.
   - **Player on the lock screen** (on unless you turn it off): lock your
     phone while Isaialai is open and waking it shows a full-screen player with
-    the album art, without unlocking. Only the player shows there; your
+    the album art, without unlocking. Tap ♥ there to like the song. Only the player shows there; your
     library and settings need unlocking. (Android doesn't let apps put
     themselves on the lock screen from the background, so this works when
     Isaialai was open. The phone's own lock-screen controls work any time.)

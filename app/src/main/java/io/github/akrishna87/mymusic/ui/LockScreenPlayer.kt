@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -99,20 +101,39 @@ fun LockScreenPlayer(vm: MusicViewModel) {
                     iconSize = 110.dp,
                 )
                 Spacer(Modifier.height(28.dp))
-                Text(
-                    song?.title ?: vm.currentTitle,
-                    style = MaterialTheme.typography.headlineSmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                )
-                Text(
-                    song?.artist ?: vm.currentArtist,
-                    color = Color.White.copy(alpha = 0.7f),
-                    fontSize = 17.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    // Same width as the heart, so the title stays centred.
+                    Spacer(Modifier.width(48.dp))
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            song?.title ?: vm.currentTitle,
+                            style = MaterialTheme.typography.headlineSmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                        )
+                        Text(
+                            song?.artist ?: vm.currentArtist,
+                            color = Color.White.copy(alpha = 0.7f),
+                            fontSize = 17.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (song != null) {
+                        val liked = vm.isLiked(song)
+                        IconButton(onClick = { vm.toggleLike(song) }, modifier = Modifier.size(48.dp)) {
+                            Icon(
+                                if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                if (liked) "Remove from Liked songs" else "Like",
+                                tint = if (liked) MaterialTheme.colorScheme.primary else Color.White,
+                                modifier = Modifier.size(30.dp),
+                            )
+                        }
+                    } else {
+                        Spacer(Modifier.width(48.dp))
+                    }
+                }
                 Spacer(Modifier.height(18.dp))
                 SeekBar(
                     fraction = if (duration > 0) vm.positionMs.toFloat() / duration else 0f,
