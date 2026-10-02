@@ -559,11 +559,21 @@ adb shell input keyevent KEYCODE_MEDIA_NEXT
 sleep 3
 [ "$(now_playing)" = "$B" ] || fail "after moving songs, the next song played wasn't $B"
 echo "PASS: dragging a song in Up next changes what plays next"
-dump queue-before-remove
-XY=$(python3 "$HERE/find_text.py" "$OUT/queue-before-remove.xml" "Up next: $C") || fail "$C isn't in Up next"
-Y=${XY#* }
-adb shell input swipe $((W * 60 / 100)) "$Y" $((W * 5 / 100)) "$Y" 250 # swipe $C away
-sleep 2
+swipe_away() { # swipe the Up next row of $1 to the left, at a natural speed
+  local xy y
+  dump queue-before-remove
+  xy=$(python3 "$HERE/find_text.py" "$OUT/queue-before-remove.xml" "Up next: $1") || fail "$1 isn't in Up next"
+  y=${xy#* }
+  adb shell input swipe $((W * 70 / 100)) "$y" $((W * 5 / 100)) "$y" 600
+  sleep 2
+}
+sleep 1
+swipe_away "$C"
+dump queue-removed
+if python3 "$HERE/find_text.py" "$OUT/queue-removed.xml" "Up next: $C" > /dev/null 2>&1; then
+  echo "(note: the first swipe didn't register on the emulator; swiping again)"
+  swipe_away "$C"
+fi
 dump queue-removed
 shot 16c-up-next-removed
 python3 "$HERE/up_next.py" "$OUT/queue-removed.xml" "$B" > "$OUT/queue-removed.txt" || true
