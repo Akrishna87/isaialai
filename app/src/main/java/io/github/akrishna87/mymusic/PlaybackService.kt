@@ -53,6 +53,8 @@ import java.util.concurrent.Executors
 import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.log10
+import kotlin.math.roundToInt
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.random.Random
@@ -96,6 +98,7 @@ class PlaybackService : MediaLibraryService() {
     private val effectsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         when (key) {
             Effects.KEY_EVEN_VOLUME -> updateEvenVolume()
+            Effects.KEY_BOOST -> applyLoudness()
             Effects.KEY_CROSSFADE -> if (crossfadeMs() == 0L) cancelFade()
             in Effects.STATUS_KEYS -> Unit
             else -> applyEffects()
@@ -147,6 +150,8 @@ class PlaybackService : MediaLibraryService() {
         } catch (e: Exception) {
             null
         }
+        effectsPrefs.edit().putBoolean(Effects.KEY_BOOST_AVAILABLE, loudnessEnhancer != null).apply()
+        applyLoudness()
         activePlayer = player
         effectsPrefs.registerOnSharedPreferenceChangeListener(effectsListener)
         clearSleep() // a timer can't outlive the service that was running it
@@ -411,22 +416,36 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    /** How much even volume is raising the current song, in dB (0 when it's lowering it or off). */
+    private var evenBoostDb = 0f
+
     /** Turns down with the player's volume; turns up with the loudness enhancer (which won't clip). */
     private fun applyGain(title: String?, db: Float) {
         evenVolume = if (db < 0) 10f.pow(db / 20f) else 1f
         applyVolume()
-        loudnessEnhancer?.let {
-            try {
-                it.setTargetGain(if (db > 0) (db * 100).toInt() else 0)
-                it.enabled = db > 0
-            } catch (e: Exception) {
-                // effect taken over by another app
-            }
-        }
+        evenBoostDb = db.coerceAtLeast(0f)
+        applyLoudness()
         val e = effectsPrefs.edit()
         if (title == null) e.remove(Effects.KEY_EVEN_VOLUME_NOW)
         else e.putString(Effects.KEY_EVEN_VOLUME_NOW, "$title|" + String.format(Locale.US, "%.1f", db))
         e.apply()
+    }
+
+    /**
+     * Everything that makes the sound louder than the file: even volume raising a quiet song, plus
+     * the volume boost (200% = +6 dB). The loudness enhancer limits peaks, so loud parts don't clip.
+     */
+    private fun applyLoudness() {
+        val boostDb = (20 * log10(Effects.boostPercent(effectsPrefs) / 100.0)).toFloat()
+        val total = evenBoostDb + boostDb
+        loudnessEnhancer?.let {
+            try {
+                it.setTargetGain((total * 100).roundToInt())
+                it.enabled = total > 0.01f
+            } catch (e: Exception) {
+                // effect taken over by another app
+            }
+        }
     }
 
     /** The volume a song should play at for even volume (cuts only; used for the incoming song in a crossfade). */

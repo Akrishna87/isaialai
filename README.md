@@ -100,6 +100,11 @@ old one and keeps your playlists.
   its title, artist, album or movie, music director or year. Edits are kept
   in Isaialai (the song file isn't changed, so other apps still see the
   original), and **Undo my changes** puts the file's details back.
+- **Volume boost** (like VLC's audio boost): tap the speaker on the full
+  player, or find it in Settings. Choose up to 200% to make quiet songs or a
+  weak phone speaker louder than the phone's maximum. It uses Android's
+  loudness enhancer, which keeps loud parts from distorting. It works with
+  Even volume and the equaliser, and stays on until you turn it off.
 - **Swipe gestures**:
   - On the mini player: swipe left for the next song, right for the previous one.
   - On the full player: swipe the cover to change song, and swipe down to close.

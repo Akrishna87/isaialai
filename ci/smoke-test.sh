@@ -221,6 +221,41 @@ session
 grep -q "speed=1.0" "$OUT/session.txt" || fail "Reset didn't bring the speed back to normal"
 echo "PASS: playback speed can be changed and reset"
 
+echo "--- Volume boost"
+dump before-boost
+tap before-boost "Volume boost"
+sleep 1
+dump boost-dialog
+shot 4g-volume-boost
+grep -q 'Volume boost: off' "$OUT/boost-dialog.xml" || fail "the volume boost dialog didn't open"
+tap boost-dialog "150%"
+sleep 2
+dump boost-150
+grep -q 'Volume boost: 150%' "$OUT/boost-150.xml" || fail "choosing 150% didn't set the volume boost"
+adb shell dumpsys media.audio_flinger > "$OUT/audio-effects.txt" 2>/dev/null || true
+if grep -iq "loudness" "$OUT/audio-effects.txt"; then
+  grep -i -A12 "loudness" "$OUT/audio-effects.txt" | grep -iq "state.*active\|enabled.*1\|ACTIVE" \
+    && echo "Android reports the loudness effect switched on" \
+    || echo "(note: the loudness effect is listed but its state couldn't be read)"
+else
+  echo "(note: couldn't see audio effects in dumpsys on this emulator)"
+fi
+tap boost-150 "Done"
+sleep 1
+dump boost-player
+grep -q 'content-desc="Volume boost: 150%"' "$OUT/boost-player.xml" || fail "the full player doesn't show the 150% boost"
+tap boost-player "Volume boost"
+sleep 1
+dump boost-dialog2
+tap boost-dialog2 "Off"
+sleep 1
+dump boost-dialog3
+tap boost-dialog3 "Done"
+sleep 1
+dump boost-off
+grep -q 'content-desc="Volume boost"' "$OUT/boost-off.xml" || fail "the volume boost didn't turn off"
+echo "PASS: volume boost can be turned up to 150% and off again"
+
 echo "--- Swipe gestures on the full player"
 SIZE=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); W=${SIZE%x*}; H=${SIZE#*x}
 sleep 1 # let the speed dialog finish closing

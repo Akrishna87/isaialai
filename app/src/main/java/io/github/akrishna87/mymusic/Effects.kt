@@ -26,8 +26,16 @@ object Effects {
     /** Written by the service: "<title>|<dB>" for the song playing now, while even volume is on. */
     const val KEY_EVEN_VOLUME_NOW = "even_volume_now"
 
+    /** Volume boost, like VLC's: 100 (off) to [MAX_BOOST] percent. */
+    const val KEY_BOOST = "boost_percent"
+    const val MAX_BOOST = 200
+    /** Written by the service: false if this phone can't boost (no loudness enhancer effect). */
+    const val KEY_BOOST_AVAILABLE = "boost_available"
+
     /** Keys the service writes for the screens to show, rather than settings it should act on. */
-    val STATUS_KEYS = setOf(KEY_INFO, KEY_SLEEP_UNTIL, KEY_SLEEP_END_OF_SONG, KEY_EVEN_VOLUME_NOW)
+    val STATUS_KEYS = setOf(KEY_INFO, KEY_SLEEP_UNTIL, KEY_SLEEP_END_OF_SONG, KEY_EVEN_VOLUME_NOW, KEY_BOOST_AVAILABLE)
+
+    fun boostPercent(p: SharedPreferences): Int = p.getInt(KEY_BOOST, 100).coerceIn(100, MAX_BOOST)
 
     /** What this phone's equaliser can do, written by the service once it has created the effect. */
     data class EqInfo(

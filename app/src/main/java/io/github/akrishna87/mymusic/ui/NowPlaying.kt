@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -61,6 +62,7 @@ fun NowPlaying(vm: MusicViewModel) {
     // What fills the middle of the player: the cover, Up next or the lyrics.
     var panel by rememberSaveable { mutableStateOf(Panel.COVER) }
     var speedDialog by remember { mutableStateOf(false) }
+    var boostDialog by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableStateOf<Float?>(null) }
     val duration = vm.durationMs
@@ -237,6 +239,7 @@ fun NowPlaying(vm: MusicViewModel) {
                     }
                     SleepButton(vm, dim) { sleepDialog = true }
                     SpeedButton(vm, dim) { speedDialog = true }
+                    BoostButton(vm, dim) { boostDialog = true }
                     Spacer(Modifier.weight(1f))
                     IconButton(onClick = { panel = if (panel == Panel.LYRICS) Panel.COVER else Panel.LYRICS }) {
                         Icon(
@@ -258,6 +261,7 @@ fun NowPlaying(vm: MusicViewModel) {
     }
     if (sleepDialog) SleepTimerDialog(vm) { sleepDialog = false }
     if (speedDialog) SpeedDialog(vm) { speedDialog = false }
+    if (boostDialog) BoostDialog(vm) { boostDialog = false }
 }
 
 private enum class Panel { COVER, QUEUE, LYRICS }
@@ -560,6 +564,37 @@ private fun SpeedButton(vm: MusicViewModel, dim: Color, onClick: () -> Unit) {
         color = if (changed) MaterialTheme.colorScheme.primary else dim,
         fontWeight = FontWeight.Bold,
         fontSize = 14.sp,
+    )
+}
+
+@Composable
+private fun BoostButton(vm: MusicViewModel, dim: Color, onClick: () -> Unit) {
+    val on = vm.boostPercent > 100
+    Row(
+        Modifier
+            .clip(CircleShape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 12.dp)
+            .semantics(mergeDescendants = true) { contentDescription = if (on) "Volume boost: ${vm.boostPercent}%" else "Volume boost" },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = null, tint = if (on) MaterialTheme.colorScheme.primary else dim)
+        if (on) {
+            Spacer(Modifier.width(4.dp))
+            Text("${vm.boostPercent}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+private fun BoostDialog(vm: MusicViewModel, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Palette.Elevated,
+        icon = { Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = null) },
+        title = { Text("Volume boost") },
+        text = { Column { BoostControls(vm) } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
     )
 }
 
