@@ -167,7 +167,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         effectsPrefs.edit().putInt(Effects.KEY_BOOST, boostPercent).apply()
     }
 
-    fun setResumeMode(mode: ResumeMode) {
+    fun chooseResumeMode(mode: ResumeMode) {
         resumeMode = mode
         effectsPrefs.edit().putString(Effects.KEY_RESUME_MODE, mode.key).apply()
     }

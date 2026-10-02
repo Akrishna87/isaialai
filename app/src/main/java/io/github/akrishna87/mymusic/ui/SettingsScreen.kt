@@ -160,7 +160,7 @@ private fun ResumeCard(vm: MusicViewModel) {
         )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             ResumeMode.entries.forEach { mode ->
-                FilterChip(selected = vm.resumeMode == mode, onClick = { vm.setResumeMode(mode) }, label = { Text(mode.label) })
+                FilterChip(selected = vm.resumeMode == mode, onClick = { vm.chooseResumeMode(mode) }, label = { Text(mode.label) })
             }
         }
     }
