@@ -176,6 +176,12 @@ Requires Android 8.0 or newer.
 | `PlayerWidget.kt` | Home-screen widget and its buttons |
 | `ci/icon/gen.py` | Generates the launcher icon (the vibing listener, plus the themed one-colour version) as vector drawables |
 
+## Ideas for later
+
+Features discussed and put on hold (a music jam with friends, and downloading
+songs from a website) are written up in [IDEAS.md](IDEAS.md), with what needs
+deciding before building them.
+
 ## Building
 
 GitHub Actions builds it (`.github/workflows/music-player-apk.yml`) on every
