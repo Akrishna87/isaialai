@@ -774,7 +774,7 @@ shot 29-lock-screen
 grep -q 'content-desc="Lock screen player"' "$OUT/lock.xml" || fail "waking the locked phone didn't show the player over the lock screen"
 grep -q 'text="Library"' "$OUT/lock.xml" && fail "the library is reachable from the lock screen"
 LOCK_SONG=$(now_playing)
-grep -q "text=\"$LOCK_SONG\"" "$OUT/lock.xml" || fail "the lock-screen player doesn't show the song that's playing"
+python3 "$HERE/find_text.py" "$OUT/lock.xml" "$LOCK_SONG" exact > /dev/null || fail "the lock-screen player doesn't show the song that's playing ($LOCK_SONG)"
 # The heart: like the song (or unlike it, if it's already liked) without unlocking.
 if grep -q 'content-desc="Remove from Liked songs"' "$OUT/lock.xml"; then BEFORE="Remove from Liked songs"; AFTER="Like"; else BEFORE="Like"; AFTER="Remove from Liked songs"; fi
 tap lock "$BEFORE"
