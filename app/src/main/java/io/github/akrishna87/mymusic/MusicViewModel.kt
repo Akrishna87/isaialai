@@ -122,6 +122,9 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     var sleepUntil by mutableLongStateOf(effectsPrefs.getLong(Effects.KEY_SLEEP_UNTIL, 0L)); private set
     var sleepEndOfSong by mutableStateOf(effectsPrefs.getBoolean(Effects.KEY_SLEEP_END_OF_SONG, false)); private set
     var crossfadeSec by mutableIntStateOf(effectsPrefs.getInt(Effects.KEY_CROSSFADE, 0)); private set
+    /** Volume boost in percent (100 = off). */
+    var boostPercent by mutableIntStateOf(Effects.boostPercent(effectsPrefs)); private set
+    var boostAvailable by mutableStateOf(effectsPrefs.getBoolean(Effects.KEY_BOOST_AVAILABLE, true)); private set
     var evenVolume by mutableStateOf(effectsPrefs.getBoolean(Effects.KEY_EVEN_VOLUME, false)); private set
     /** The song playing now and how many dB even volume moved it, while even volume is on. */
     var evenVolumeNow by mutableStateOf(readEvenVolumeNow()); private set
@@ -131,6 +134,8 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         sleepUntil = p.getLong(Effects.KEY_SLEEP_UNTIL, 0L)
         sleepEndOfSong = p.getBoolean(Effects.KEY_SLEEP_END_OF_SONG, false)
         crossfadeSec = p.getInt(Effects.KEY_CROSSFADE, 0)
+        boostPercent = Effects.boostPercent(p)
+        boostAvailable = p.getBoolean(Effects.KEY_BOOST_AVAILABLE, true)
         evenVolume = p.getBoolean(Effects.KEY_EVEN_VOLUME, false)
         evenVolumeNow = readEvenVolumeNow()
     }
@@ -143,6 +148,11 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     fun setCrossfade(seconds: Int) {
         crossfadeSec = seconds.coerceIn(0, 12)
         effectsPrefs.edit().putInt(Effects.KEY_CROSSFADE, crossfadeSec).apply()
+    }
+
+    fun setBoost(percent: Int) {
+        boostPercent = percent.coerceIn(100, Effects.MAX_BOOST)
+        effectsPrefs.edit().putInt(Effects.KEY_BOOST, boostPercent).apply()
     }
 
     fun setEvenVolumeOn(on: Boolean) {

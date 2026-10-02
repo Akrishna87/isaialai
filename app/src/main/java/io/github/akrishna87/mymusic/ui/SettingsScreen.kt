@@ -27,6 +27,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.akrishna87.mymusic.Effects
 import io.github.akrishna87.mymusic.MusicViewModel
 import io.github.akrishna87.mymusic.Screen
 import java.util.Locale
@@ -53,6 +54,7 @@ fun SettingsScreen(vm: MusicViewModel) {
             item { SettingsHeading("Playback") }
             item { CrossfadeCard(vm) }
             item { EvenVolumeCard(vm) }
+            item { SettingsCard { BoostControls(vm) } }
             item { SettingsHeading("Tools") }
             item { LinkRow(Icons.Rounded.Tune, "Equalizer", "Presets, bands and bass boost") { vm.showEqualizer = true } }
             item { LinkRow(Icons.Rounded.ContentCopy, "Find duplicate songs", "Songs saved more than once") { vm.open(Screen.Duplicates) } }
@@ -207,6 +209,48 @@ private fun SwitchRow(title: String, subtitle: String, checked: Boolean, onChang
             checked = checked,
             onCheckedChange = null, // the whole row switches it
             colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.primary, checkedThumbColor = Color.White),
+        )
+    }
+}
+
+/** Volume boost, like VLC's: 100% to 200%. Shared by Settings and the full player. */
+@Composable
+fun BoostControls(vm: MusicViewModel) {
+    var dragging by remember { mutableStateOf<Float?>(null) }
+    val shown = dragging?.let { (it / 10).roundToInt() * 10 } ?: vm.boostPercent
+    Text(if (shown <= 100) "Volume boost: off" else "Volume boost: $shown%", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+    Text(
+        "Makes music louder than the phone's maximum volume, like VLC's audio boost. " +
+            "Loud parts are kept from distorting.",
+        color = Palette.SubText,
+        fontSize = 13.sp,
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        listOf(100, 125, 150, 175, 200).forEach { p ->
+            FilterChip(
+                selected = vm.boostPercent == p,
+                onClick = { vm.setBoost(p) },
+                label = { Text(if (p == 100) "Off" else "$p%") },
+                enabled = vm.boostAvailable,
+            )
+        }
+    }
+    Slider(
+        value = dragging ?: vm.boostPercent.toFloat(),
+        onValueChange = { dragging = it },
+        onValueChangeFinished = { dragging?.let { vm.setBoost((it / 10).roundToInt() * 10) }; dragging = null },
+        valueRange = 100f..Effects.MAX_BOOST.toFloat(),
+        steps = (Effects.MAX_BOOST - 100) / 10 - 1,
+        enabled = vm.boostAvailable,
+        modifier = Modifier.semantics { contentDescription = "Volume boost" },
+    )
+    if (!vm.boostAvailable) {
+        Text("This phone doesn't let apps boost the volume.", color = Palette.SubText, fontSize = 13.sp)
+    } else if (shown > 150) {
+        Text(
+            "Careful: very loud sound can hurt your hearing and small speakers. Turn it down if you hear crackling.",
+            color = MaterialTheme.colorScheme.primary,
+            fontSize = 13.sp,
         )
     }
 }
