@@ -26,6 +26,8 @@ old one and keeps your playlists.
 
 ## Features
 
+A one-line-per-feature list, ready to share, is in [FEATURES.md](FEATURES.md).
+
 - **Home · Search · Library** along the bottom, with a mini player above
   them tinted in the current song's cover colour.
 - **Home** greets you by time of day and has quick tiles (Liked songs,
