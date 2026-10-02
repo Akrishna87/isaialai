@@ -67,6 +67,44 @@ data class FolderEntry(val path: String, val name: String, val songCount: Int)
 
 enum class SongSort(val label: String) { TITLE("A–Z"), ARTIST("Artist"), NEWEST("Newest") }
 
+/** Working out each song's album or movie, the same way for every kind of song. */
+object AlbumNames {
+    /**
+     * Folders whose name Android shows as the "album" of songs that have none saved inside them.
+     * A real album is never called this, so these mean "no album".
+     */
+    private val GENERIC_FOLDERS = setOf(
+        "download", "downloads", "music", "my music", "audio", "audios", "song", "songs", "mp3", "mp3s",
+        "media", "sounds", "documents", "bluetooth", "recordings", "new folder", "telegram", "telegram audio",
+        "whatsapp audio", "snaptube audio", "vidmate", "0", "emulated", "sdcard",
+    )
+
+    // "Arabic Kuthu (From "Beast")", "Song [From 'Movie']", "Song - From \"Movie\""
+    private val FROM_MOVIE = Regex("""(?:[\(\[]|-\s)\s*from\s+["“”'‘’]?([^"“”'‘’)\]]+?)["“”'‘’]?\s*(?:[\)\]]|$)""", RegexOption.IGNORE_CASE)
+
+    /** The movie named in a title like "Song (From "Movie")", if there is one. */
+    fun movieFromTitle(title: String): String? = FROM_MOVIE.find(title)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() }
+
+    /**
+     * The album to show: the tag, unless it's missing or just the folder's name standing in for
+     * it, in which case the movie from the title, else none ("").
+     */
+    fun resolve(tag: String, folderName: String, title: String): String {
+        val album = tag.trim().takeUnless { it.isEmpty() || it == "<unknown>" }
+        val fallback = album != null && album.equals(folderName.trim(), ignoreCase = true) &&
+            album.lowercase() in GENERIC_FOLDERS
+        return if (album != null && !fallback) album else movieFromTitle(title).orEmpty()
+    }
+
+    /** Songs with the same album name are one album, wherever they're saved. Songs with none stand alone. */
+    fun keyFor(album: String, songId: String): String =
+        if (album.isBlank()) "$NONE$songId" else "album:" + album.trim().lowercase()
+
+    const val NONE = "none:"
+
+    fun hasAlbum(song: Song) = !song.albumKey.startsWith(NONE)
+}
+
 object Storage {
     const val SD_CARD = "SD card"
 
@@ -174,14 +212,16 @@ object MusicRepository {
                     else Storage.splitLegacyPath(c.getString(iData).orEmpty())
                 val rawTitle = c.getString(iTitle)
                 val rawArtist = c.getString(iArtist)
-                val rawAlbum = c.getString(iAlbum).orEmpty()
                 val albumId = c.getLong(iAlbumId)
+                val id = c.getLong(iId).toString()
+                val title = if (rawTitle.isNullOrBlank()) fileName.substringBeforeLast('.') else rawTitle
+                val album = AlbumNames.resolve(c.getString(iAlbum).orEmpty(), relativeDir.trim('/').substringAfterLast('/'), title)
                 songs += Song(
-                    id = c.getLong(iId).toString(),
-                    title = if (rawTitle.isNullOrBlank()) fileName.substringBeforeLast('.') else rawTitle,
+                    id = id,
+                    title = title,
                     artist = if (rawArtist.isNullOrBlank() || rawArtist == "<unknown>") Song.UNKNOWN_ARTIST else rawArtist,
-                    album = if (rawAlbum == "<unknown>") "" else rawAlbum,
-                    albumKey = "ms:$albumId",
+                    album = album,
+                    albumKey = AlbumNames.keyFor(album, id),
                     albumId = albumId,
                     durationMs = duration,
                     track = c.getInt(iTrack) % 1000, // stored as disc * 1000 + track
@@ -210,8 +250,9 @@ object LibraryGrouping {
         SongSort.NEWEST -> songs.sortedByDescending { it.dateAdded }
     }
 
+    /** Albums and movies; songs without one aren't grouped into a made-up album. */
     fun albums(songs: List<Song>): List<AlbumGroup> =
-        songs.groupBy { it.albumKey }.map { (key, list) ->
+        songs.filter(AlbumNames::hasAlbum).groupBy { it.albumKey }.map { (key, list) ->
             val artists = list.map { it.artist }.distinct()
             AlbumGroup(
                 key = key,

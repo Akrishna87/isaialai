@@ -23,6 +23,9 @@
 🚗 Android Auto: pick songs from your car's screen.
 🌗 Dark, light or match-phone theme, with colours from your wallpaper.
 ✏️ Fix a song's title, artist, album, music director or year.
+🖼️ Change any song's cover art to a picture from your phone (one song or the whole movie).
+⏯️ Continue where you left off, with a Continue listening row on Home.
+🎬 Downloaded songs grouped by movie, not lumped into one "Download" album.
 🧹 Duplicate finder to clean up songs saved twice.
 🛡️ Private and secure: no internet access, and updates signed with the app's own key.
 

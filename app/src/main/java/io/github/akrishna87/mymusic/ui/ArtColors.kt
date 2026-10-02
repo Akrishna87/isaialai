@@ -52,10 +52,12 @@ fun Color.wash(amount: Float = 0.45f): Color =
 object ArtColors {
     private val cache = LruCache<String, Int>(400)
 
-    fun cached(song: Song): Color? = cache.get(song.id)?.let { Color(it) }
+    private fun key(song: Song) = "${song.id}#${io.github.akrishna87.mymusic.CustomArt.version}"
+
+    fun cached(song: Song): Color? = cache.get(key(song))?.let { Color(it) }
 
     suspend fun load(context: Context, song: Song): Color? {
-        cache.get(song.id)?.let { return Color(it) }
+        cache.get(key(song))?.let { return Color(it) }
         val bmp = ArtLoader.load(context, song, 160) ?: return null
         val rgb = withContext(Dispatchers.Default) {
             try {
@@ -67,7 +69,7 @@ object ArtColors {
                 null
             }
         } ?: return null
-        cache.put(song.id, rgb)
+        cache.put(key(song), rgb)
         return Color(rgb)
     }
 }
@@ -76,10 +78,11 @@ object ArtColors {
 @Composable
 fun rememberArtColor(song: Song?, fallback: Color = Palette.Highlight): Color {
     val context = LocalContext.current
-    var target by remember(song?.id) {
+    val coverVersion = io.github.akrishna87.mymusic.CustomArt.version
+    var target by remember(song?.id, coverVersion) {
         mutableStateOf(song?.let { ArtColors.cached(it) ?: placeholderColor(it.colorKey()) } ?: fallback)
     }
-    LaunchedEffect(song?.id) {
+    LaunchedEffect(song?.id, coverVersion) {
         if (song != null) ArtColors.load(context, song)?.let { target = it }
     }
     val animated by animateColorAsState(target, tween(700), label = "artColor")

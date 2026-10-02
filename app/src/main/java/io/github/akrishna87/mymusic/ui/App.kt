@@ -229,6 +229,7 @@ private fun Shell(vm: MusicViewModel) {
     vm.playlistPickerFor?.let { PlaylistPickerDialog(vm, it) }
     vm.nameRequest?.let { req -> NameDialog(req) { vm.nameRequest = null } }
     vm.editing?.let { song -> EditSongDialog(vm, song) { vm.editing = null } }
+    vm.coverRequest?.let { req -> CoverDialog(vm, req) { vm.coverRequest = null } }
 }
 
 @Composable

@@ -1,6 +1,9 @@
 package io.github.akrishna87.mymusic.ui
 
 import android.graphics.Bitmap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -44,7 +47,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import io.github.akrishna87.mymusic.AlbumGroup
+import io.github.akrishna87.mymusic.AlbumNames
 import io.github.akrishna87.mymusic.ArtLoader
+import io.github.akrishna87.mymusic.CoverRequest
+import io.github.akrishna87.mymusic.CustomArt
 import io.github.akrishna87.mymusic.ArtistGroup
 import io.github.akrishna87.mymusic.LibraryGrouping
 import io.github.akrishna87.mymusic.SmartPlaylist
@@ -77,8 +83,9 @@ fun ArtImage(
     iconSize: Dp = 22.dp,
 ) {
     val context = LocalContext.current
-    var bitmap by remember(song?.id, sizePx) { mutableStateOf<Bitmap?>(song?.let { ArtLoader.cached(it, sizePx) }) }
-    LaunchedEffect(song?.id, sizePx) {
+    val coverVersion = CustomArt.version
+    var bitmap by remember(song?.id, sizePx, coverVersion) { mutableStateOf<Bitmap?>(song?.let { ArtLoader.cached(it, sizePx) }) }
+    LaunchedEffect(song?.id, sizePx, coverVersion) {
         if (song != null && bitmap == null) bitmap = ArtLoader.load(context, song, sizePx)
     }
     Box(
@@ -174,13 +181,16 @@ fun SongMenu(vm: MusicViewModel, song: Song, expanded: Boolean, onDismiss: () ->
         MenuItem("Play next", Icons.Rounded.SkipNext) { onDismiss(); vm.enqueue(song, next = true) }
         MenuItem("Add to queue", Icons.Rounded.AddToQueue) { onDismiss(); vm.enqueue(song, next = false) }
         MenuItem("Add to playlist…", Icons.AutoMirrored.Rounded.PlaylistAdd) { onDismiss(); vm.playlistPickerFor = song }
-        MenuItem("Go to album", Icons.Rounded.Album) { onDismiss(); vm.open(Screen.Album(song.albumKey)) }
+        if (AlbumNames.hasAlbum(song)) {
+            MenuItem("Go to album", Icons.Rounded.Album) { onDismiss(); vm.open(Screen.Album(song.albumKey)) }
+        }
         MenuItem("Go to artist", Icons.Rounded.Person) { onDismiss(); vm.open(Screen.Artist(song.artist)) }
         LibraryGrouping.composerNames(song.composer).firstOrNull()?.let { composer ->
             MenuItem("Go to music director", Icons.Rounded.LibraryMusic) { onDismiss(); vm.open(Screen.Composer(composer)) }
         }
         MenuItem("Go to folder", Icons.Rounded.Folder) { onDismiss(); vm.open(Screen.Folder(song.folder)) }
         MenuItem("Edit song details…", Icons.Rounded.Edit) { onDismiss(); vm.editing = song }
+        MenuItem("Change cover art…", Icons.Rounded.Image) { onDismiss(); vm.requestCover(song) }
         if (playlistId != null) {
             MenuItem("Remove from this playlist", Icons.Rounded.RemoveCircleOutline) { onDismiss(); vm.playlists.remove(playlistId, song.id) }
         }
@@ -442,4 +452,61 @@ private fun EditField(label: String, value: String, numbers: Boolean = false, on
         },
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+/**
+ * Pick a picture from the phone as a song's cover (whether or not it already has one), for just
+ * that song or its whole album or movie. Or go back to the cover in the file.
+ */
+@Composable
+fun CoverDialog(vm: MusicViewModel, request: CoverRequest, onDismiss: () -> Unit) {
+    val albumToo = request.albumSongs.size > 1
+    var wholeAlbum by remember(request) { mutableStateOf(albumToo) }
+    val targets = if (wholeAlbum) request.albumSongs else listOf(request.song)
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) vm.setCover(targets, uri)
+        onDismiss()
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Palette.Elevated,
+        title = { Text("Change cover art") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    ArtImage(request.song, Modifier.size(72.dp), sizePx = 300, shape = RoundedCornerShape(6.dp))
+                    Text(request.song.title, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                if (albumToo) {
+                    CoverScope("Just this song", selected = !wholeAlbum) { wholeAlbum = false }
+                    CoverScope("All ${songCount(request.albumSongs.size)} in “${request.albumName}”", selected = wholeAlbum) { wholeAlbum = true }
+                }
+                Text(
+                    "Choose any picture from your phone. Isaialai keeps its own copy; the song files aren't changed.",
+                    color = Palette.SubText,
+                    fontSize = 13.sp,
+                )
+                if (vm.hasCover(targets)) {
+                    TextButton(onClick = { onDismiss(); vm.removeCover(targets) }) { Text("Use the cover from the file") }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            }) { Text("Choose picture") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun CoverScope(label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick).padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = onClick)
+        Text(label, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
 }

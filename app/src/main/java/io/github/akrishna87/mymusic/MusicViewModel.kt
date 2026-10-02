@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import io.github.akrishna87.mymusic.ui.formatTime
 import io.github.akrishna87.mymusic.ui.songCount
 import kotlin.random.Random
 
@@ -57,6 +58,9 @@ enum class Section { HOME, SEARCH, LIBRARY }
 enum class LibraryChip(val label: String) {
     SONGS("Songs"), ALBUMS("Albums"), ARTISTS("Artists"), COMPOSERS("Composers"), FOLDERS("Folders"), PLAYLISTS("Playlists")
 }
+
+/** Choosing a cover for [song], or for every song in its album ([albumSongs], if it has one). */
+data class CoverRequest(val song: Song, val albumName: String, val albumSongs: List<Song>)
 
 /** A pending "name this playlist" prompt. */
 data class NameRequest(val title: String, val initial: String, val onSave: (String) -> Unit)
@@ -128,7 +132,15 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     var evenVolume by mutableStateOf(effectsPrefs.getBoolean(Effects.KEY_EVEN_VOLUME, false)); private set
     /** The song playing now and how many dB even volume moved it, while even volume is on. */
     var evenVolumeNow by mutableStateOf(readEvenVolumeNow()); private set
-    private val effectsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { p, _ ->
+    var resumeMode by mutableStateOf(Effects.resumeMode(effectsPrefs)); private set
+    private val effectsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { p, key ->
+        resumeMode = Effects.resumeMode(p)
+        if (key == Effects.KEY_RESUMED) {
+            p.getString(Effects.KEY_RESUMED, null)?.split('|')?.takeIf { it.size == 3 }?.let { (title, pos, _) ->
+                val at = formatTime(pos.toLongOrNull() ?: 0)
+                messageChannel.trySend("Continuing “$title” from $at · tap ⏮ to start over")
+            }
+        }
         eqInfo = Effects.readInfo(p)
         eqSettings = Effects.read(p)
         sleepUntil = p.getLong(Effects.KEY_SLEEP_UNTIL, 0L)
@@ -153,6 +165,27 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     fun setBoost(percent: Int) {
         boostPercent = percent.coerceIn(100, Effects.MAX_BOOST)
         effectsPrefs.edit().putInt(Effects.KEY_BOOST, boostPercent).apply()
+    }
+
+    fun setResumeMode(mode: ResumeMode) {
+        resumeMode = mode
+        effectsPrefs.edit().putString(Effects.KEY_RESUME_MODE, mode.key).apply()
+    }
+
+    // ----- Continue listening -----
+
+    private val resumePrefs = ResumePoints.prefs(app)
+    /** Changes whenever a song's saved place changes, so Home's "Continue listening" updates. */
+    var resumeVersion by mutableIntStateOf(0); private set
+    private val resumeListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> resumeVersion++ }
+
+    /** Songs left part-way, most recent first, with where they were left. */
+    fun continueListening(): List<Pair<Song, ResumePoints.Point>> {
+        if (resumeMode == ResumeMode.OFF) return emptyList()
+        return ResumePoints.all(resumePrefs)
+            .filter { resumeMode.applies(it.durationMs) }
+            .mapNotNull { p -> songsById[p.songId]?.let { it to p } }
+            .take(12)
     }
 
     fun setEvenVolumeOn(on: Boolean) {
@@ -207,6 +240,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     init {
+        CustomArt.load(app)
         viewModelScope.launch {
             val c = try { controllerFuture.await() } catch (e: Exception) { return@launch }
             controller = c
@@ -226,10 +260,12 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         effectsPrefs.registerOnSharedPreferenceChangeListener(effectsListener)
+        resumePrefs.registerOnSharedPreferenceChangeListener(resumeListener)
     }
 
     override fun onCleared() {
         effectsPrefs.unregisterOnSharedPreferenceChangeListener(effectsListener)
+        resumePrefs.unregisterOnSharedPreferenceChangeListener(resumeListener)
         if (observing) getApplication<Application>().contentResolver.unregisterContentObserver(mediaObserver)
         controller?.removeListener(playerListener)
         MediaController.releaseFuture(controllerFuture)
@@ -519,13 +555,48 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     fun saveEdit(song: Song, edit: SongEdits.Edit?) {
         if (edit == null) edits.clear(song.id) else edits.set(song.id, edit)
         publish(rawSongs)
-        val updated = songsById[song.id] ?: return
-        controller?.let { c ->
-            for (i in 0 until c.mediaItemCount) {
-                if (c.getMediaItemAt(i).mediaId == song.id) c.replaceMediaItem(i, updated.toMediaItem())
+        refreshQueued(setOf(song.id))
+        messageChannel.trySend(if (edit == null) "Back to the details in the file" else "Saved")
+    }
+
+    /** Updates queued copies of these songs (new details or cover) without interrupting playback. */
+    private fun refreshQueued(ids: Set<String>) {
+        val c = controller ?: return
+        for (i in 0 until c.mediaItemCount) {
+            val id = c.getMediaItemAt(i).mediaId
+            if (id in ids) songsById[id]?.let { c.replaceMediaItem(i, it.toMediaItem()) }
+        }
+    }
+
+    // ----- Cover art -----
+
+    /** The cover dialog, if it's open. */
+    var coverRequest by mutableStateOf<CoverRequest?>(null)
+
+    fun requestCover(song: Song) {
+        val album = if (AlbumNames.hasAlbum(song)) songs.filter { it.albumKey == song.albumKey } else listOf(song)
+        coverRequest = CoverRequest(song, song.album, album)
+    }
+
+    fun hasCover(songs: List<Song>) = songs.any { CustomArt.has(it.id) }
+
+    /** Uses the picture at [image] as the cover of [songs]. */
+    fun setCover(songs: List<Song>, image: Uri) {
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) { CustomArt.save(getApplication(), songs.map { it.id }, image) }
+            if (ok) {
+                refreshQueued(songs.mapTo(HashSet()) { it.id })
+                messageChannel.trySend(if (songs.size == 1) "Cover changed" else "Cover changed for ${songCount(songs.size)}")
+            } else {
+                messageChannel.trySend("Couldn't use that picture")
             }
         }
-        messageChannel.trySend(if (edit == null) "Back to the details in the file" else "Saved")
+    }
+
+    fun removeCover(songs: List<Song>) {
+        CustomArt.remove(getApplication(), songs.map { it.id })
+        refreshQueued(songs.mapTo(HashSet()) { it.id })
+        messageChannel.trySend("Back to the cover in the file")
     }
 
     suspend fun loadLyrics(song: Song): Lyrics? = withContext(Dispatchers.IO) {

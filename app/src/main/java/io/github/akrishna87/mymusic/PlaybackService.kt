@@ -129,6 +129,7 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
+        CustomArt.load(this)
         player = ExoPlayer.Builder(this)
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -174,6 +175,7 @@ class PlaybackService : MediaLibraryService() {
                 // Mid-crossfade, the incoming song stops and starts with this one. This also covers
                 // phone calls and other apps' sounds, which silence the player without pausing it.
                 if (fade?.handingOver == false) fadePlayer?.playWhenReady = isPlaying
+                if (!isPlaying) rememberWhereLeft()
                 savePosition()
                 PlayerWidget.update(this@PlaybackService, player)
             }
@@ -194,6 +196,12 @@ class PlaybackService : MediaLibraryService() {
                     if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && mediaItem?.mediaId == f.toId) startHandover(f)
                     else cancelFade() // skipped, or the queue changed
                 }
+                // Remember where the song before was left, then continue this one where it was left.
+                lastSong?.let { (id, pos, dur) ->
+                    if (id != mediaItem?.mediaId && resumeMode().applies(dur)) ResumePoints.save(resumePrefs, id, pos, dur)
+                }
+                lastSong = null
+                if (fade?.handingOver != true && reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) continueWhereLeft(mediaItem)
                 updateEvenVolume()
                 // A brand-new queue started while shuffle is on: shuffle it starting from the chosen song.
                 if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED && player.shuffleModeEnabled) {
@@ -246,12 +254,16 @@ class PlaybackService : MediaLibraryService() {
             while (isActive) {
                 delay(200)
                 crossfadeTick()
+                trackSong()
             }
         }
         scope.launch {
             while (isActive) {
                 delay(10_000)
-                if (player.isPlaying) savePosition()
+                if (player.isPlaying) {
+                    savePosition()
+                    rememberWhereLeft()
+                }
             }
         }
     }
@@ -267,6 +279,7 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onDestroy() {
         activePlayer = null
+        rememberWhereLeft()
         savePosition()
         clearSleep()
         effectsPrefs.unregisterOnSharedPreferenceChangeListener(effectsListener)
@@ -501,6 +514,8 @@ class PlaybackService : MediaLibraryService() {
                 fadePlayer = it
             }
         fp.setMediaItem(item)
+        // A song with a saved place fades in from there.
+        ResumePoints.get(resumePrefs, item.mediaId)?.takeIf { resumeMode().applies(it.durationMs) }?.let { fp.seekTo(it.positionMs) }
         fp.playbackParameters = player.playbackParameters // same speed and pitch
         fp.volume = 0f
         fp.prepare()
@@ -550,6 +565,43 @@ class PlaybackService : MediaLibraryService() {
         }
         crossfadeFade = 1f
         if (::player.isInitialized) applyVolume()
+    }
+
+    // ----- Continue where you left off -----
+
+    private val resumePrefs by lazy { ResumePoints.prefs(this) }
+
+    private fun resumeMode() = Effects.resumeMode(effectsPrefs)
+
+    /** The song playing, where it's got to, and its length; kept up to date for when it changes. */
+    private var lastSong: Triple<String, Long, Long>? = null
+
+    private fun trackSong() {
+        val id = player.currentMediaItem?.mediaId ?: return
+        val dur = player.duration
+        if (id.isNotEmpty() && dur != C.TIME_UNSET && dur > 0) lastSong = Triple(id, player.currentPosition, dur)
+    }
+
+    /** Saves the current song's place (on pause, every 10 s, and when the player closes). */
+    private fun rememberWhereLeft() {
+        val id = player.currentMediaItem?.mediaId ?: return
+        val dur = player.duration
+        val pos = player.currentPosition
+        if (dur == C.TIME_UNSET || dur <= 0 || !resumeMode().applies(dur)) return
+        // Just after a song starts its place isn't known yet; don't let that wipe a saved one.
+        if (pos < 10_000 && dur - pos >= 15_000) return
+        ResumePoints.save(resumePrefs, id, pos, dur)
+    }
+
+    /** A song started from its beginning: jump to where it was left, if it was. */
+    private fun continueWhereLeft(item: MediaItem?) {
+        val id = item?.mediaId ?: return
+        if (player.currentPosition > 3_000) return // already starting part-way (e.g. reopening the app)
+        val point = ResumePoints.get(resumePrefs, id) ?: return
+        if (!resumeMode().applies(point.durationMs)) return
+        player.seekTo(point.positionMs)
+        val title = item.mediaMetadata.title?.toString().orEmpty()
+        effectsPrefs.edit().putString(Effects.KEY_RESUMED, "$title|${point.positionMs}|${System.currentTimeMillis()}").apply()
     }
 
     // ----- Speed & pitch -----

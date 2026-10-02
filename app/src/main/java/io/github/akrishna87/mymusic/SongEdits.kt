@@ -53,8 +53,8 @@ class SongEdits(context: Context) {
             title = e.title.trim().ifEmpty { song.title },
             artist = e.artist.trim().ifEmpty { Song.UNKNOWN_ARTIST },
             album = album,
-            // A changed album name moves the song to that album.
-            albumKey = if (album == song.album) song.albumKey else "edit:${album.lowercase()}",
+            // A changed album name moves the song to that album (or movie).
+            albumKey = AlbumNames.keyFor(album, song.id),
             composer = e.composer.trim(),
             year = e.year,
         )
