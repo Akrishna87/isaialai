@@ -54,13 +54,20 @@ scroll_down() { # swipe up on the middle of the screen
 }
 playing() { session; grep -Eq "\{state=(PLAYING|3)" "$OUT/session.txt"; }
 tap_clear() { # tap_clear <text>: scroll until <text> is above the mini player, then tap it
-  local i b x1 y1 x2 y2 h
+  local i b x1 y1 x2 y2 h density limit home
   h=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); h=${h#*x}
-  for i in 1 2 3 4; do
+  density=$(adb shell wm density | grep -o '[0-9]*' | tail -1)
+  for i in 1 2 3 4 5; do
     dump clear
+    # The mini player sits just above the tab bar: about 90 dp above the "Home" tab's label.
+    limit=$((h * 70 / 100))
+    if home=$(python3 "$HERE/find_text.py" "$OUT/clear.xml" "Home" exact-bounds 2> /dev/null); then
+      read -r _ y1 _ _ <<<"$home"
+      limit=$((y1 - 90 * density / 160))
+    fi
     if b=$(python3 "$HERE/find_text.py" "$OUT/clear.xml" "$1" exact-bounds 2> /dev/null); then
       read -r x1 y1 x2 y2 <<<"$b"
-      if [ $(((y1 + y2) / 2)) -lt $((h * 68 / 100)) ]; then adb shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2)); return 0; fi
+      if [ $(((y1 + y2) / 2)) -lt "$limit" ]; then adb shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2)); return 0; fi
     fi
     scroll_down
   done
