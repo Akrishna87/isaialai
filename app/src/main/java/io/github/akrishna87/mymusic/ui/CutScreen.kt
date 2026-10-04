@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -28,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
@@ -226,7 +228,10 @@ fun CutScreen(vm: MusicViewModel, songId: String, ringtone: Boolean) {
             Text(if (ringtone) "Make a ringtone" else "Cut song", style = MaterialTheme.typography.titleLarge)
         }
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            Modifier.fillMaxSize()
+                // Tapping anywhere outside a time field closes the keyboard and applies the time.
+                .pointerInput(Unit) { detectTapGestures { focus.clearFocus() } }
+                .verticalScroll(rememberScrollState())
                 .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = LocalBottomSpace.current),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {

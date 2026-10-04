@@ -963,14 +963,19 @@ menu_item() { # menu_item <dump> <song> <item>: open a song's ⋮ menu and tap a
   done
   fail "the song menu has no '$3'"
 }
-type_time() { # type_time <dump> <field> <time>
+screen_texts() { grep -o 'text="[^"]\+"\|content-desc="[^"]\+"' "$OUT/$1.xml" | head -25 | tr '\n' ' '; echo; }
+type_time() { # type_time <dump> <field> <time>: type a time, then tap the "Part to keep" title to apply it
   tap "$1" "$2"
   sleep 1
+  dump tt-focused; echo "after tapping $2: $(screen_texts tt-focused)"
   adb shell input keyevent KEYCODE_MOVE_END
   for _ in 1 2 3 4 5 6 7 8 9; do adb shell input keyevent KEYCODE_DEL; done
   adb shell input text "$3"
-  adb shell input keyevent KEYCODE_ENTER
   sleep 1
+  dump tt-typed; echo "after typing $3: $(screen_texts tt-typed)"
+  tap tt-typed "Part to keep:" # moves focus off the field, which applies the time
+  sleep 1
+  dump tt-done; echo "after applying: $(screen_texts tt-done)"
 }
 dump nav-cut
 tap nav-cut "Library"
