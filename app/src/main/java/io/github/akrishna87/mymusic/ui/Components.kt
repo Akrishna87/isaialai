@@ -191,6 +191,8 @@ fun SongMenu(vm: MusicViewModel, song: Song, expanded: Boolean, onDismiss: () ->
         MenuItem("Go to folder", Icons.Rounded.Folder) { onDismiss(); vm.open(Screen.Folder(song.folder)) }
         MenuItem("Edit song details…", Icons.Rounded.Edit) { onDismiss(); vm.editing = song }
         MenuItem("Change cover art…", Icons.Rounded.Image) { onDismiss(); vm.requestCover(song) }
+        MenuItem("Cut song…", Icons.Rounded.ContentCut) { onDismiss(); vm.open(Screen.Cut(song.id, ringtone = false)) }
+        MenuItem("Set as ringtone…", Icons.Rounded.NotificationsActive) { onDismiss(); vm.open(Screen.Cut(song.id, ringtone = true)) }
         if (playlistId != null) {
             MenuItem("Remove from this playlist", Icons.Rounded.RemoveCircleOutline) { onDismiss(); vm.playlists.remove(playlistId, song.id) }
         }

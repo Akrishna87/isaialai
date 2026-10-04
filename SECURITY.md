@@ -9,9 +9,16 @@ Results of a code review of Isaialai and what was changed.
   (`ACCESS_NETWORK_STATE` comes in from the Media3 library and only reads
   whether a network is connected.)
 - **Not debuggable**, and release builds are minified.
-- **Read-only storage access.** It asks for `READ_MEDIA_AUDIO` (or
+- **Limited storage access.** It asks for `READ_MEDIA_AUDIO` (or
   `READ_EXTERNAL_STORAGE` on Android 12 and older) and read-only access to
-  folders you add. It can't change or delete files.
+  folders you add. It never changes your existing files. It only adds new
+  ones you ask for: cut songs and ringtones, saved through Android's media
+  library (`WRITE_EXTERNAL_STORAGE` only on Android 9 and older). It deletes
+  a file only from the duplicate finder, after Android asks you to confirm.
+- **Ringtones only with your say-so.** Setting a cut as your ringtone,
+  notification or alarm sound uses `WRITE_SETTINGS`. Android keeps that off
+  until you turn on "Allow modifying system settings" for Isaialai, and the
+  app uses it for nothing else.
 - **Song tags shown as text only.** Titles and artists from files are never
   run as code (the web version escapes them before showing them).
 

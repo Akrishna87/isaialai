@@ -950,6 +950,98 @@ sleep 1
 adb shell input keyevent KEYCODE_MEDIA_PLAY
 sleep 2
 
+echo "--- Cut a song"
+menu_item() { # menu_item <dump> <song> <item>: open a song's ⋮ menu and tap an item, scrolling the menu if needed
+  local i xy
+  tap "$1" "More options for $2"
+  sleep 1
+  for i in 1 2 3; do
+    dump song-menu
+    if xy=$(python3 "$HERE/find_text.py" "$OUT/song-menu.xml" "$3" 2> /dev/null); then adb shell input tap $xy; return 0; fi
+    adb shell input swipe $((W / 2)) $((H * 70 / 100)) $((W / 2)) $((H * 35 / 100)) 400
+    sleep 1
+  done
+  fail "the song menu has no '$3'"
+}
+type_time() { # type_time <dump> <field> <time>
+  tap "$1" "$2"
+  sleep 1
+  adb shell input keyevent KEYCODE_MOVE_END
+  for _ in 1 2 3 4 5 6 7 8 9; do adb shell input keyevent KEYCODE_DEL; done
+  adb shell input text "$3"
+  adb shell input keyevent KEYCODE_ENTER
+  sleep 1
+}
+dump nav-cut
+tap nav-cut "Library"
+sleep 2
+chip "Songs"
+sleep 2
+dump songs-cut
+menu_item songs-cut "Smoke Song 1" "Cut song"
+sleep 2
+dump cut-screen
+shot 36-cut-screen
+grep -q 'text="Cut song"' "$OUT/cut-screen.xml" || fail "the Cut song screen didn't open"
+type_time cut-screen "Start time" "0:10"
+dump cut-screen2
+type_time cut-screen2 "End time" "0:25"
+if adb shell dumpsys input_method | grep -q "mInputShown=true"; then adb shell input keyevent KEYCODE_BACK; sleep 1; fi
+dump cut-set
+grep -q 'Part to keep: 0:15' "$OUT/cut-set.xml" || fail "typing 0:10 to 0:25 didn't select a 15-second part"
+tap_clear "Save"
+for _ in $(seq 1 30); do
+  sleep 2
+  cut=$(adb shell content query --uri content://media/external/audio/media --projection title:duration:relative_path --where "title=\'Smoke\ Song\ 1\ \(cut\)\'" || true)
+  grep -q "duration=" <<<"$cut" && break
+done
+echo "saved cut: $cut"
+grep -q "Isaialai cuts" <<<"$cut" || fail "the cut wasn't saved to Music/Isaialai cuts"
+D=$(grep -o "duration=[0-9]*" <<<"$cut" | head -1 | cut -d= -f2)
+[ "${D:-0}" -ge 14000 ] && [ "${D:-0}" -le 16500 ] || fail "the cut is ${D:-0} ms long, not about 15 s"
+echo "PASS: a song can be cut, and the 15 s part is saved as a new song"
+
+echo "--- Set as ringtone"
+adb shell appops set "$PKG" WRITE_SETTINGS default || true
+BEFORE_RINGTONE=$(adb shell settings get system ringtone)
+dump nav-ring
+chip "Songs"
+sleep 2
+dump songs-ring
+menu_item songs-ring "Smoke Song 2" "Set as ringtone"
+sleep 2
+dump ring-screen
+shot 37-ringtone-screen
+grep -q 'text="Make a ringtone"' "$OUT/ring-screen.xml" || fail "the ringtone screen didn't open"
+grep -q 'Part to keep: 0:30' "$OUT/ring-screen.xml" || fail "the ringtone doesn't start as the first 30 seconds"
+tap_clear "Save and set"
+for _ in $(seq 1 30); do
+  sleep 2
+  dump ring-ask
+  grep -q "Allow changing your ringtone" "$OUT/ring-ask.xml" && break
+done
+shot 38-ringtone-permission
+grep -q "Allow changing your ringtone" "$OUT/ring-ask.xml" || fail "Isaialai didn't explain the ringtone permission"
+tap ring-ask "Open settings"
+sleep 3
+adb shell appops set "$PKG" WRITE_SETTINGS allow # what turning on "Allow modifying system settings" does
+adb shell input keyevent KEYCODE_BACK
+sleep 4
+dump ring-done
+RINGTONE=$(adb shell settings get system ringtone)
+echo "ringtone before: $BEFORE_RINGTONE"
+echo "ringtone now:    $RINGTONE"
+ring=$(adb shell content query --uri content://media/external/audio/media --projection _id:title:duration:is_ringtone:relative_path --where "title=\'Smoke\ Song\ 2\ ringtone\'" || true)
+echo "saved ringtone: $ring"
+grep -q "is_ringtone=1" <<<"$ring" || fail "the ringtone wasn't saved as a ringtone"
+grep -q "Ringtones" <<<"$ring" || fail "the ringtone wasn't saved in the Ringtones folder"
+RID=$(grep -o "_id=[0-9]*" <<<"$ring" | head -1 | cut -d= -f2)
+grep -q "/$RID" <<<"$RINGTONE" || fail "the phone's ringtone wasn't changed to the new one"
+D=$(grep -o "duration=[0-9]*" <<<"$ring" | head -1 | cut -d= -f2)
+[ "${D:-0}" -ge 29000 ] && [ "${D:-0}" -le 31500 ] || fail "the ringtone is ${D:-0} ms long, not about 30 s"
+echo "PASS: any song can be made the phone's ringtone (with Android's permission)"
+adb shell settings put system ringtone "$BEFORE_RINGTONE" > /dev/null 2>&1 || true
+
 echo "--- Android Auto"
 # Android prints the service either as "pkg/.PlaybackService" or "name=pkg.PlaybackService".
 adb shell cmd package query-services -a androidx.media3.session.MediaLibraryService > "$OUT/library-services.txt"

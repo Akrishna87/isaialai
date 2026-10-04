@@ -191,6 +191,7 @@ private fun Shell(vm: MusicViewModel) {
                     vm.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                     screen == Screen.Duplicates -> DuplicatesScreen(vm)
                     screen == Screen.Settings -> SettingsScreen(vm)
+                    screen is Screen.Cut -> CutScreen(vm, screen.songId, screen.ringtone)
                     screen != null -> DetailScreen(vm, screen)
                     vm.songs.isEmpty() && section != Section.LIBRARY -> EmptyLibrary(vm)
                     section == Section.HOME -> HomeScreen(vm)
