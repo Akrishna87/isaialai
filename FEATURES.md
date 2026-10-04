@@ -23,6 +23,8 @@
 🚗 Android Auto: pick songs from your car's screen.
 🌗 Dark, light or match-phone theme, with colours from your wallpaper.
 ✏️ Fix a song's title, artist, album, music director or year.
+✂️ Cut any song and save just the part you want.
+🔔 Make any song (or part of it) your ringtone, notification or alarm sound.
 🖼️ Change any song's cover art to a picture from your phone (one song or the whole movie).
 ⏯️ Continue where you left off, with a Continue listening row on Home.
 🎬 Downloaded songs grouped by movie, not lumped into one "Download" album.

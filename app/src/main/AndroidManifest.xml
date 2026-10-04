@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Read the songs on the phone: Android 13+ and older versions use different permissions. -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
@@ -14,6 +15,15 @@
 
     <!-- Equaliser and bass boost on the app's own audio. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Set a cut song as the phone's ringtone, notification or alarm sound. Android asks you
+         to allow it first ("Modify system settings"). -->
+    <uses-permission
+        android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+    <!-- Save cut songs on Android 9 and older (newer versions don't need it). -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 
     <!-- No backups or phone-to-phone copies of the app's data (play history, folder access). -->
     <application

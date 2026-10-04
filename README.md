@@ -114,6 +114,16 @@ A one-line-per-feature list, ready to share, is in [FEATURES.md](FEATURES.md).
   Settings choose Long tracks (10 minutes or more: talks, concerts,
   podcasts; the default), All songs, or Off. Home shows a **Continue
   listening** row with how much is left. Tap ⏮ to start a song over.
+- **Cut a song**: a song's ⋮ menu → **Cut song…**. Drag the two handles or
+  type the start and end times (for example 0:10 to 0:25), nudge them by 5
+  seconds, and tap **Play this part** to check it. Then save it as a new song
+  in Music/Isaialai cuts. The original isn't changed.
+- **Make any song your ringtone**: ⋮ → **Set as ringtone…**. It starts as
+  the first 30 seconds; pick the part you want and choose phone ringtone,
+  notification sound or alarm sound. The first time, Android asks you to
+  turn on "Allow modifying system settings" for Isaialai. After that it's
+  one tap. Ringtones are saved in your phone's Ringtones (or Notifications,
+  Alarms) folder, so they also show up in Settings → Sound.
 - **Edit song details**: a song's ⋮ menu → **Edit song details…** to fix
   its title, artist, album or movie, music director or year. Edits are kept
   in Isaialai (the song file isn't changed, so other apps still see the

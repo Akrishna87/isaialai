@@ -43,6 +43,8 @@ sealed interface Screen {
     data class Smart(val kind: SmartPlaylist) : Screen
     data object Duplicates : Screen
     data object Settings : Screen
+    /** Cut part of a song, to save as a new song or as a ringtone ([ringtone] picks that to start with). */
+    data class Cut(val songId: String, val ringtone: Boolean) : Screen
 }
 
 /** Playlists that fill themselves from what you play. */
@@ -511,6 +513,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun pause() = controller?.pause()
     fun next() = controller?.seekToNextMediaItem()
     fun previous() = controller?.seekToPrevious()
     /** Always the song before (used by swipe gestures), never "restart this song". */
