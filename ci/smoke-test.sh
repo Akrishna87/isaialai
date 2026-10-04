@@ -58,7 +58,7 @@ tap_clear() { # tap_clear <text>: scroll until <text> is above the mini player, 
   h=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); h=${h#*x}
   for i in 1 2 3 4; do
     dump clear
-    if b=$(python3 "$HERE/find_text.py" "$OUT/clear.xml" "$1" bounds 2> /dev/null); then
+    if b=$(python3 "$HERE/find_text.py" "$OUT/clear.xml" "$1" exact-bounds 2> /dev/null); then
       read -r x1 y1 x2 y2 <<<"$b"
       if [ $(((y1 + y2) / 2)) -lt $((h * 68 / 100)) ]; then adb shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2)); return 0; fi
     fi

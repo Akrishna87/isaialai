@@ -32,6 +32,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -85,6 +86,7 @@ fun CutScreen(vm: MusicViewModel, songId: String, ringtone: Boolean) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
 
     // The song's length: from the library, or read from the file if the library doesn't know it.
     var duration by remember(songId) { mutableLongStateOf(song.durationMs) }
@@ -261,14 +263,11 @@ fun CutScreen(vm: MusicViewModel, songId: String, ringtone: Boolean) {
                     modifier = Modifier.semantics { contentDescription = "Part to keep" },
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TimeField("Start", startText, Modifier.weight(1f), onChange = { startText = it }, onDone = { focus.clearFocus() }) {
-                        parseTime(startText)?.let(::setStart)
-                        startText = formatTime(startMs)
-                    }
-                    TimeField("End", endText, Modifier.weight(1f), onChange = { endText = it }, onDone = { focus.clearFocus() }) {
-                        parseTime(endText)?.let(::setEnd)
-                        endText = formatTime(endMs)
-                    }
+                    fun commitStart() { parseTime(startText)?.let(::setStart); startText = formatTime(startMs) }
+                    fun commitEnd() { parseTime(endText)?.let(::setEnd); endText = formatTime(endMs) }
+                    // Done applies the time and hides the keyboard, keeping the cursor where it is.
+                    TimeField("Start", startText, Modifier.weight(1f), onChange = { startText = it }, onDone = { commitStart(); keyboard?.hide() }, onCommit = ::commitStart)
+                    TimeField("End", endText, Modifier.weight(1f), onChange = { endText = it }, onDone = { commitEnd(); keyboard?.hide() }, onCommit = ::commitEnd)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(-5_000L to "Start −5s", 5_000L to "Start +5s").forEach { (d, label) ->
