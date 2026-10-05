@@ -119,6 +119,10 @@ fun SongRow(
     onClick: () -> Unit,
     playlistId: String? = null,
     number: Int? = null,
+    /** A ≡ handle for dragging the song to a new place (in your playlists). */
+    dragHandle: (@Composable () -> Unit)? = null,
+    /** Extra song-menu items for this list, such as "Move to top". */
+    extraMenu: (@Composable ColumnScope.(dismiss: () -> Unit) -> Unit)? = null,
 ) {
     val playing = vm.currentId == song.id
     var menu by remember { mutableStateOf(false) }
@@ -164,18 +168,27 @@ fun SongRow(
                 )
             }
         }
+        dragHandle?.invoke()
         Box {
             IconButton(onClick = { menu = true }) {
                 Icon(Icons.Rounded.MoreVert, contentDescription = "More options for ${song.title}", tint = Palette.SubText)
             }
-            SongMenu(vm, song, expanded = menu, onDismiss = { menu = false }, playlistId = playlistId)
+            SongMenu(vm, song, expanded = menu, onDismiss = { menu = false }, playlistId = playlistId, extra = extraMenu)
         }
     }
 }
 
 @Composable
-fun SongMenu(vm: MusicViewModel, song: Song, expanded: Boolean, onDismiss: () -> Unit, playlistId: String? = null) {
+fun SongMenu(
+    vm: MusicViewModel,
+    song: Song,
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    playlistId: String? = null,
+    extra: (@Composable ColumnScope.(dismiss: () -> Unit) -> Unit)? = null,
+) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        extra?.invoke(this, onDismiss)
         val liked = vm.isLiked(song)
         MenuItem(if (liked) "Remove from Liked songs" else "Like", if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder) { onDismiss(); vm.toggleLike(song) }
         MenuItem("Play next", Icons.Rounded.SkipNext) { onDismiss(); vm.enqueue(song, next = true) }
@@ -200,7 +213,7 @@ fun SongMenu(vm: MusicViewModel, song: Song, expanded: Boolean, onDismiss: () ->
 }
 
 @Composable
-private fun MenuItem(text: String, icon: ImageVector, onClick: () -> Unit) {
+fun MenuItem(text: String, icon: ImageVector, onClick: () -> Unit) {
     DropdownMenuItem(
         text = { Text(text) },
         leadingIcon = { Icon(icon, contentDescription = null, tint = Palette.SubText) },

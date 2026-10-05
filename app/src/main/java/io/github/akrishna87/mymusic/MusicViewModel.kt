@@ -696,6 +696,13 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         messageChannel.trySend(if (with != null) "Added to “${p.name}”" else "Created “${p.name}”")
     }
 
+    /** Moves a song within a playlist ([from] and [to] are positions in [shown], the list on screen). */
+    fun movePlaylistSong(playlistId: String, shown: List<Song>, from: Int, to: Int) {
+        if (from == to || from !in shown.indices || to !in shown.indices) return
+        val order = shown.map { it.id }.toMutableList().apply { add(to, removeAt(from)) }
+        playlists.reorder(playlistId, order)
+    }
+
     fun deletePlaylist(id: String) {
         playlists.delete(id)
         if (screens.lastOrNull() == Screen.PlaylistDetail(id)) screens.removeAt(screens.lastIndex)

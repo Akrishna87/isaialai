@@ -5,6 +5,17 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
+import androidx.compose.material.icons.rounded.VerticalAlignTop
+import androidx.compose.material.icons.rounded.VerticalAlignBottom
+import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -121,6 +132,29 @@ fun DetailScreen(vm: MusicViewModel, screen: Screen) {
     val artColor = rememberArtColor(lead)
     val color = if (detail?.kind == DetailKind.LIKED) Palette.Violet else artColor
     val listState = rememberLazyListState()
+    val reorder = remember(screen) { ReorderState() }
+    // The list as it is now, for drag gestures that started before the latest change.
+    val songsNow by rememberUpdatedState(detail?.songs.orEmpty())
+    // Dragging a song near the top or bottom edge scrolls the list, so it can go anywhere.
+    LaunchedEffect(reorder.from) {
+        if (reorder.from == null) return@LaunchedEffect
+        while (reorder.from != null) {
+            val info = listState.layoutInfo
+            val dragged = info.visibleItemsInfo.firstOrNull { it.key == detail?.songs?.getOrNull(reorder.from ?: -1)?.id }
+            val edge = reorder.rowPx
+            val step = when {
+                dragged == null -> 0f
+                dragged.offset + reorder.offset < info.viewportStartOffset + edge -> -18f
+                dragged.offset + dragged.size + reorder.offset > info.viewportEndOffset - edge * 2 -> 18f
+                else -> 0f
+            }
+            if (step != 0f) {
+                val moved = listState.scrollBy(step)
+                reorder.offset += moved
+            }
+            delay(16)
+        }
+    }
     val scrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 500 } }
     val barColor by animateColorAsState(if (scrolled) color.wash(0.55f) else Color.Transparent, label = "bar")
 
@@ -147,13 +181,68 @@ fun DetailScreen(vm: MusicViewModel, screen: Screen) {
                         Text("No songs here yet. Use a song's ⋮ menu → “Add to playlist…”.", Modifier.padding(24.dp), color = Palette.SubText)
                     }
                     else -> itemsIndexed(detail.songs, key = { _, s -> s.id }) { i, s ->
-                        SongRow(
-                            vm,
-                            s,
-                            onClick = { vm.play(detail.songs, i, from = detail.title) },
-                            playlistId = detail.playlistId?.takeIf { detail.kind == DetailKind.PLAYLIST || detail.kind == DetailKind.LIKED },
-                            number = if (detail.kind == DetailKind.ALBUM) (s.track.takeIf { it > 0 } ?: (i + 1)) else null,
-                        )
+                        val ownPlaylist = detail.playlistId?.takeIf { detail.kind == DetailKind.PLAYLIST || detail.kind == DetailKind.LIKED }
+                        // While a song is dragged it follows the finger, and the songs it passes make room.
+                        val from = reorder.from
+                        val target = reorder.target(detail.songs.size)
+                        val shift = when {
+                            from == null || target == null -> 0f
+                            i == from -> reorder.offset
+                            from < target && i in (from + 1)..target -> -reorder.rowPx
+                            from > target && i in target until from -> reorder.rowPx
+                            else -> 0f
+                        }
+                        Box(
+                            Modifier
+                                .zIndex(if (i == from) 1f else 0f)
+                                .graphicsLayer { translationY = shift }
+                                .background(if (i == from) Palette.Elevated2 else Color.Transparent)
+                                .onSizeChanged { if (i == 0) reorder.rowPx = it.height.toFloat() },
+                        ) {
+                            SongRow(
+                                vm,
+                                s,
+                                onClick = { vm.play(detail.songs, i, from = detail.title) },
+                                playlistId = ownPlaylist,
+                                number = if (detail.kind == DetailKind.ALBUM) (s.track.takeIf { it > 0 } ?: (i + 1)) else null,
+                                dragHandle = ownPlaylist?.let { pid ->
+                                    {
+                                        Icon(
+                                            Icons.Rounded.DragHandle,
+                                            "Reorder ${s.title}",
+                                            tint = Palette.SubText,
+                                            modifier = Modifier
+                                                .size(44.dp)
+                                                .pointerInput(i, detail.songs.size) {
+                                                    detectVerticalDragGestures(
+                                                        onDragStart = { reorder.start(i) },
+                                                        onDragEnd = {
+                                                            reorder.finish(songsNow.size)?.let { (a, b) -> vm.movePlaylistSong(pid, songsNow, a, b) }
+                                                        },
+                                                        onDragCancel = { reorder.cancel() },
+                                                    ) { change, dy ->
+                                                        change.consume()
+                                                        reorder.offset += dy
+                                                    }
+                                                }
+                                                .padding(10.dp),
+                                        )
+                                    }
+                                },
+                                extraMenu = ownPlaylist?.let { pid ->
+                                    { dismiss ->
+                                        if (i > 0) {
+                                            MenuItem("Move to top", Icons.Rounded.VerticalAlignTop) { dismiss(); vm.movePlaylistSong(pid, detail.songs, i, 0) }
+                                        }
+                                        if (i < detail.songs.lastIndex) {
+                                            MenuItem("Move to bottom", Icons.Rounded.VerticalAlignBottom) {
+                                                dismiss(); vm.movePlaylistSong(pid, detail.songs, i, detail.songs.lastIndex)
+                                            }
+                                        }
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -228,5 +317,32 @@ private fun Hero(vm: MusicViewModel, detail: DetailData, color: Color) {
                 enabled = detail.songs.isNotEmpty(),
             )
         }
+    }
+}
+
+/** A song being dragged to a new place in a playlist. */
+private class ReorderState {
+    var from by mutableStateOf<Int?>(null)
+    var offset by mutableFloatStateOf(0f)
+    var rowPx by mutableFloatStateOf(1f)
+
+    fun target(size: Int): Int? = from?.let { (it + (offset / rowPx).roundToInt()).coerceIn(0, (size - 1).coerceAtLeast(0)) }
+
+    fun start(index: Int) {
+        from = index
+        offset = 0f
+    }
+
+    /** Ends the drag; returns (from, to) if the song moved. */
+    fun finish(size: Int): Pair<Int, Int>? {
+        val a = from
+        val b = target(size)
+        cancel()
+        return if (a != null && b != null && a != b) a to b else null
+    }
+
+    fun cancel() {
+        from = null
+        offset = 0f
     }
 }
