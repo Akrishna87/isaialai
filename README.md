@@ -71,6 +71,10 @@ A one-line-per-feature list, ready to share, is in [FEATURES.md](FEATURES.md).
   line to jump there. Isaialai reads lyrics saved inside the song file, or an
   `.lrc` file with the same name in the same folder. Android only lets apps
   read `.lrc` files in folders you've added (Library → Folders → Add a folder).
+- **Reorder playlists**: on any of your playlists (and Liked songs), drag a
+  song by its ≡ handle to a new place; the list scrolls if you drag near the
+  top or bottom. A song's ⋮ menu also has **Move to top** and **Move to
+  bottom**. The new order is saved straight away.
 - **Edit Up next**: on the full player's Up next list, drag a song by its ≡
   handle to move it, or swipe it left to take it out of the queue. This works
   with shuffle on too.

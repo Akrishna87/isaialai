@@ -86,6 +86,15 @@ class PlaylistStore(context: Context) {
 
     fun remove(id: String, songId: String) = update(id) { it.copy(songIds = it.songIds - songId) }
 
+    /**
+     * Puts the songs of a playlist in the order [shownOrder] (the songs as listed on screen).
+     * Songs in the playlist that aren't on the phone right now keep their place at the end.
+     */
+    fun reorder(id: String, shownOrder: List<String>) = update(id) { p ->
+        val shown = shownOrder.filter { it in p.songIds }.distinct()
+        p.copy(songIds = shown + p.songIds.filter { it !in shown })
+    }
+
     private fun update(id: String, change: (Playlist) -> Playlist) {
         val i = items.indexOfFirst { it.id == id }
         if (i < 0) return

@@ -7,7 +7,7 @@
 🔍 Search songs, artists, albums, music directors and folders as you type.
 🎼 Browse by music director (Ilaiyaraaja, A.R. Rahman, Anirudh…) with all their movies.
 ✨ Smart playlists: Most played, Recently added, Not played in a while, Never played.
-❤️ Liked songs and your own playlists.
+❤️ Liked songs and your own playlists, which you can reorder by dragging.
 📝 Lyrics that scroll along with the song (tap a line to jump there).
 🎚️ Equaliser with presets and bass boost.
 🔊 Volume boost up to 200%, like VLC.

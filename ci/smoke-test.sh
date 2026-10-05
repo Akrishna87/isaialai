@@ -53,6 +53,18 @@ scroll_down() { # swipe up on the middle of the screen
   sleep 1
 }
 playing() { session; grep -Eq "\{state=(PLAYING|3)" "$OUT/session.txt"; }
+menu_item() { # menu_item <dump> <song> <item>: open a song's ⋮ menu and tap an item, scrolling the menu if needed
+  local i xy
+  tap "$1" "More options for $2"
+  sleep 1
+  for i in 1 2 3; do
+    dump song-menu
+    if xy=$(python3 "$HERE/find_text.py" "$OUT/song-menu.xml" "$3" 2> /dev/null); then adb shell input tap $xy; return 0; fi
+    adb shell input swipe $((W / 2)) $((H * 70 / 100)) $((W / 2)) $((H * 35 / 100)) 400
+    sleep 1
+  done
+  fail "the song menu has no '$3'"
+}
 tap_clear() { # tap_clear <text>: scroll until <text> is above the mini player, then tap it
   local i b x1 y1 x2 y2 h density limit home
   h=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); h=${h#*x}
@@ -957,19 +969,91 @@ sleep 1
 adb shell input keyevent KEYCODE_MEDIA_PLAY
 sleep 2
 
-echo "--- Cut a song"
-menu_item() { # menu_item <dump> <song> <item>: open a song's ⋮ menu and tap an item, scrolling the menu if needed
-  local i xy
-  tap "$1" "More options for $2"
-  sleep 1
-  for i in 1 2 3; do
-    dump song-menu
-    if xy=$(python3 "$HERE/find_text.py" "$OUT/song-menu.xml" "$3" 2> /dev/null); then adb shell input tap $xy; return 0; fi
-    adb shell input swipe $((W / 2)) $((H * 70 / 100)) $((W / 2)) $((H * 35 / 100)) 400
-    sleep 1
+echo "--- Reorder songs in a playlist"
+on_screen() { # on_screen <text>: scroll down until <text> is on screen (and above the mini player)
+  local i
+  for i in 1 2 3 4 5; do
+    dump on-screen
+    python3 "$HERE/find_text.py" "$OUT/on-screen.xml" "$1" exact > /dev/null 2>&1 && return 0
+    scroll_down
   done
-  fail "the song menu has no '$3'"
+  fail "couldn't find '$1'"
 }
+playlist_order() { python3 - "$OUT/$1.xml" <<'PY'
+import sys, xml.etree.ElementTree as ET
+seen = []
+for n in ET.parse(sys.argv[1]).iter("node"):
+    t = n.get("text") or ""
+    if t in ("Tune 01", "Tune 02", "Tune 03") and t not in seen:
+        seen.append(t)
+print(" ".join(seen))
+PY
+}
+dump nav-pl
+tap nav-pl "Library"
+sleep 2
+dump lib-pl
+tap lib-pl "New playlist"
+sleep 2
+adb shell input text "Order%sTest"
+sleep 1
+dump pl-name
+tap pl-name "Save"
+sleep 2
+chip "Songs"
+sleep 2
+for t in "Tune 01" "Tune 02" "Tune 03"; do
+  on_screen "More options for $t"
+  menu_item on-screen "$t" "Add to playlist"
+  sleep 1
+  dump pl-pick
+  tap pl-pick "Order Test"
+  sleep 1
+done
+adb shell input swipe 540 700 540 2000 300 # back to the top of the list
+sleep 1
+chip "Playlists"
+sleep 2
+on_screen "Order Test"
+tap on-screen "Order Test"
+sleep 3
+scroll_down
+dump pl-page
+shot 39-playlist-before
+echo "playlist order: $(playlist_order pl-page)"
+[ "$(playlist_order pl-page)" = "Tune 01 Tune 02 Tune 03" ] || fail "the new playlist isn't in the order the songs were added"
+read -r X1 Y1 X2 Y2 < <(python3 "$HERE/find_text.py" "$OUT/pl-page.xml" "Reorder Tune 01" bounds) || fail "playlist songs have no drag handle"
+read -r _ Z1 _ Z2 < <(python3 "$HERE/find_text.py" "$OUT/pl-page.xml" "Reorder Tune 02" bounds)
+ROWPX=$(((Z1 + Z2) / 2 - (Y1 + Y2) / 2))
+X=$(((X1 + X2) / 2)); Y=$(((Y1 + Y2) / 2))
+adb shell input swipe "$X" "$Y" "$X" $((Y + ROWPX * 2 + ROWPX / 5)) 1500 # drag Tune 01 down two places
+sleep 2
+dump pl-moved
+shot 40-playlist-reordered
+echo "after dragging Tune 01 down two places: $(playlist_order pl-moved)"
+[ "$(playlist_order pl-moved)" = "Tune 02 Tune 03 Tune 01" ] || fail "dragging a song in the playlist didn't move it"
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+on_screen "Order Test"
+tap on-screen "Order Test"
+sleep 3
+scroll_down
+dump pl-reopened
+echo "after reopening: $(playlist_order pl-reopened)"
+[ "$(playlist_order pl-reopened)" = "Tune 02 Tune 03 Tune 01" ] || fail "the new playlist order wasn't saved"
+tap pl-reopened "More options for Tune 01"
+sleep 1
+dump pl-menu
+tap pl-menu "Move to top"
+sleep 2
+dump pl-top
+echo "after Move to top: $(playlist_order pl-top)"
+[ "$(playlist_order pl-top)" = "Tune 01 Tune 02 Tune 03" ] || fail "Move to top didn't move the song to the top"
+echo "PASS: songs in a playlist can be reordered (drag, or Move to top), and the order is kept"
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+
+echo "--- Cut a song"
 screen_texts() { grep -o 'text="[^"]\+"\|content-desc="[^"]\+"' "$OUT/$1.xml" | head -25 | tr '\n' ' '; echo; }
 type_time() { # type_time <dump> <field> <time>: type a time, then tap the "Part to keep" title to apply it
   tap "$1" "$2"
