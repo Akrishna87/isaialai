@@ -14,6 +14,7 @@
 ⚖️ Even volume, so loud and quiet songs play at the same level.
 🌊 Crossfade that blends one song into the next.
 ⏩ Playback speed and pitch control.
+⏪ Jump back or forward 10 seconds: buttons, double-tap the cover, or from the notification.
 😴 Sleep timer that gently fades the music out.
 🔀 Shuffle, repeat, and an Up next queue you can drag to reorder or swipe to remove.
 👆 Swipe the player to change songs; swipe down to close it.

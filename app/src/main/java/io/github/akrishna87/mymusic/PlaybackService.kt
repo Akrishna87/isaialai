@@ -27,7 +27,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
 import androidx.media3.session.CacheBitmapLoader
 import androidx.media3.session.MediaSession
+import androidx.media3.session.CommandButton
 import androidx.media3.session.LibraryResult
+import androidx.media3.session.SessionCommands
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
@@ -81,6 +83,14 @@ class PlaybackService : MediaLibraryService() {
 
         /** Custom command: move a song within Up next. Args "from" and "to": positions in Up next (0 = next song). */
         const val CMD_MOVE_UPCOMING = "io.github.akrishna87.mymusic.MOVE_UPCOMING"
+
+        /** How far ⏪ and ⏩ jump. */
+        const val SEEK_STEP_MS = 10_000L
+
+        /** The notification and lock-screen ⏪ 10 / ⏩ 10 buttons. Anyone may use these (they only move within the song). */
+        private const val CMD_REWIND = "io.github.akrishna87.mymusic.REWIND_10"
+        private const val CMD_FORWARD = "io.github.akrishna87.mymusic.FORWARD_10"
+        private val SEEK_COMMANDS = listOf(SessionCommand(CMD_REWIND, Bundle.EMPTY), SessionCommand(CMD_FORWARD, Bundle.EMPTY))
     }
 
     private var session: MediaLibrarySession? = null
@@ -140,6 +150,8 @@ class PlaybackService : MediaLibraryService() {
             )
             .setHandleAudioBecomingNoisy(true) // pause when headphones are unplugged
             .setWakeMode(C.WAKE_MODE_LOCAL)
+            .setSeekBackIncrementMs(SEEK_STEP_MS)
+            .setSeekForwardIncrementMs(SEEK_STEP_MS)
             .build()
 
         // Give the player a fixed audio session so the equaliser can attach to it.
@@ -167,6 +179,7 @@ class PlaybackService : MediaLibraryService() {
         session = MediaLibrarySession.Builder(this, player, SessionCallback())
             .setSessionActivity(openApp)
             .setBitmapLoader(CacheBitmapLoader(ArtBitmapLoader(this)))
+            .setCustomLayout(seekButtons())
             .build()
 
         player.addListener(object : Player.Listener {
@@ -604,6 +617,28 @@ class PlaybackService : MediaLibraryService() {
         effectsPrefs.edit().putString(Effects.KEY_RESUMED, "$title|${point.positionMs}|${System.currentTimeMillis()}").apply()
     }
 
+    // ----- ⏪ 10 s / ⏩ 10 s -----
+
+    /**
+     * Extra buttons for the notification, lock screen and car. They go after ⏮ ⏯ ⏭ (in the
+     * overflow slot), so previous and next stay where they are.
+     */
+    private fun seekButtons(): List<CommandButton> = listOf(
+        CommandButton.Builder(CommandButton.ICON_SKIP_BACK_10)
+            .setSessionCommand(SEEK_COMMANDS[0])
+            .setDisplayName("Back 10 seconds")
+            .setSlots(CommandButton.SLOT_OVERFLOW)
+            .build(),
+        CommandButton.Builder(CommandButton.ICON_SKIP_FORWARD_10)
+            .setSessionCommand(SEEK_COMMANDS[1])
+            .setDisplayName("Forward 10 seconds")
+            .setSlots(CommandButton.SLOT_OVERFLOW)
+            .build(),
+    )
+
+    private fun withSeekButtons(commands: SessionCommands): SessionCommands =
+        commands.buildUpon().apply { SEEK_COMMANDS.forEach { add(it) } }.build()
+
     // ----- Speed & pitch -----
 
     private fun restorePlaybackSpeed() {
@@ -786,14 +821,14 @@ class PlaybackService : MediaLibraryService() {
                     .add(SessionCommand(CMD_MOVE_UPCOMING, Bundle.EMPTY))
                     .build()
                 return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                    .setAvailableSessionCommands(commands)
+                    .setAvailableSessionCommands(withSeekButtons(commands))
                     .build()
             }
             // Android Auto (on the phone, or a car with Android built in) can browse the library and
             // pick songs.
             if (isCar(session, controller)) {
                 return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                    .setAvailableSessionCommands(MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS)
+                    .setAvailableSessionCommands(withSeekButtons(MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS))
                     .setAvailablePlayerCommands(MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS)
                     .build()
             }
@@ -808,7 +843,7 @@ class PlaybackService : MediaLibraryService() {
                     .build()
             }
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                .setAvailableSessionCommands(MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS)
+                .setAvailableSessionCommands(withSeekButtons(MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS))
                 .setAvailablePlayerCommands(player)
                 .build()
         }
@@ -871,6 +906,11 @@ class PlaybackService : MediaLibraryService() {
             customCommand: SessionCommand,
             args: Bundle,
         ): ListenableFuture<SessionResult> {
+            // ⏪ 10 / ⏩ 10 from the notification, lock screen or car.
+            when (customCommand.customAction) {
+                CMD_REWIND -> { player.seekBack(); return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS)) }
+                CMD_FORWARD -> { player.seekForward(); return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS)) }
+            }
             if (!isOwnApp(controller)) {
                 return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_PERMISSION_DENIED))
             }

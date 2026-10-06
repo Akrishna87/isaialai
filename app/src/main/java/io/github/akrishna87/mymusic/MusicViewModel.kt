@@ -514,6 +514,9 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun pause() = controller?.pause()
+    /** Jumps back or forward 10 seconds in the song. */
+    fun rewind10() = controller?.seekBack()
+    fun forward10() = controller?.seekForward()
     fun next() = controller?.seekToNextMediaItem()
     fun previous() = controller?.seekToPrevious()
     /** Always the song before (used by swipe gestures), never "restart this song". */

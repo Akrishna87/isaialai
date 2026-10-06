@@ -13,9 +13,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.*
@@ -146,21 +148,27 @@ fun LockScreenPlayer(vm: MusicViewModel) {
                     Text(formatTime(duration), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
                 }
                 Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                    IconButton(onClick = { vm.previous() }, modifier = Modifier.size(64.dp)) {
-                        Icon(Icons.Rounded.SkipPrevious, "Previous song", modifier = Modifier.size(46.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
+                    IconButton(onClick = { vm.rewind10() }, enabled = duration > 0, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Rounded.Replay10, "Back 10 seconds", modifier = Modifier.size(30.dp))
                     }
-                    Surface(onClick = vm::togglePlay, shape = CircleShape, color = Color.White, contentColor = Color.Black, modifier = Modifier.size(78.dp)) {
+                    IconButton(onClick = { vm.previous() }, modifier = Modifier.size(58.dp)) {
+                        Icon(Icons.Rounded.SkipPrevious, "Previous song", modifier = Modifier.size(42.dp))
+                    }
+                    Surface(onClick = vm::togglePlay, shape = CircleShape, color = Color.White, contentColor = Color.Black, modifier = Modifier.size(74.dp)) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 if (vm.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                                 if (vm.isPlaying) "Pause" else "Play",
-                                modifier = Modifier.size(44.dp),
+                                modifier = Modifier.size(42.dp),
                             )
                         }
                     }
-                    IconButton(onClick = { vm.next() }, modifier = Modifier.size(64.dp)) {
-                        Icon(Icons.Rounded.SkipNext, "Next song", modifier = Modifier.size(46.dp))
+                    IconButton(onClick = { vm.next() }, modifier = Modifier.size(58.dp)) {
+                        Icon(Icons.Rounded.SkipNext, "Next song", modifier = Modifier.size(42.dp))
+                    }
+                    IconButton(onClick = { vm.forward10() }, enabled = duration > 0, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Rounded.Forward10, "Forward 10 seconds", modifier = Modifier.size(30.dp))
                     }
                 }
                 Spacer(Modifier.weight(1f))

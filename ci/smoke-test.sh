@@ -261,6 +261,50 @@ session
 grep -q "speed=1.0" "$OUT/session.txt" || fail "Reset didn't bring the speed back to normal"
 echo "PASS: playback speed can be changed and reset"
 
+echo "--- Jump back / forward 10 seconds"
+pos() { session; grep -o "position=[0-9]*" "$OUT/session.txt" | head -1 | cut -d= -f2 || true; }
+adb shell input keyevent KEYCODE_MEDIA_PAUSE # paused, so the reported position is exact
+sleep 2
+BEFORE=$(pos)
+dump before-jump
+shot 4h-jump-buttons
+tap before-jump "Forward 10 seconds"
+sleep 2
+AHEAD=$(pos)
+echo "position: $BEFORE ms, after ⏩: $AHEAD ms"
+[ $((AHEAD - BEFORE)) -ge 9000 ] && [ $((AHEAD - BEFORE)) -le 11000 ] || fail "'Forward 10 seconds' didn't jump 10 s ahead"
+tap before-jump "Back 10 seconds"
+sleep 2
+BACK=$(pos)
+echo "after ⏪: $BACK ms"
+[ $((AHEAD - BACK)) -ge 9000 ] && [ $((AHEAD - BACK)) -le 11000 ] || fail "'Back 10 seconds' didn't jump 10 s back"
+# The same buttons in the notification / lock-screen controls.
+grep -q "Back 10 seconds" "$OUT/session.txt" || fail "the notification has no 'Back 10 seconds' button"
+grep -q "Forward 10 seconds" "$OUT/session.txt" || fail "the notification has no 'Forward 10 seconds' button"
+echo "PASS: ⏪ 10 s and ⏩ 10 s work, and are in the notification controls"
+# Double-tapping the right of the cover jumps ahead too. adb can't always tap twice quickly
+# enough to count as a double tap, so this is only a note.
+SIZE=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); W=${SIZE%x*}; H=${SIZE#*x}
+adb shell "input tap $((W * 3 / 4)) $((H * 38 / 100)) & sleep 0.12; input tap $((W * 3 / 4)) $((H * 38 / 100))"
+sleep 2
+DT=$(pos)
+if [ $((DT - BACK)) -ge 9000 ]; then
+  echo "double-tapping the right of the cover jumped ahead: $BACK -> $DT ms"
+  # Go back again, so the song doesn't run out during the next tests (they expect it to keep playing).
+  adb shell "input tap $((W / 4)) $((H * 38 / 100)) & sleep 0.12; input tap $((W / 4)) $((H * 38 / 100))"
+  sleep 2
+  DT2=$(pos)
+  if [ $((DT - DT2)) -ge 9000 ]; then echo "double-tapping the left of the cover jumped back: $DT -> $DT2 ms"
+  else
+    echo "(note: the second double tap didn't register: $DT -> $DT2 ms)"
+    dump after-double-tap
+    tap after-double-tap "Back 10 seconds"
+    sleep 1
+  fi
+else echo "(note: adb's taps weren't quick enough to count as a double tap: $BACK -> $DT ms)"; fi
+adb shell input keyevent KEYCODE_MEDIA_PLAY
+sleep 1
+
 echo "--- Volume boost"
 dump before-boost
 tap before-boost "Volume boost"
@@ -676,10 +720,14 @@ sleep 1
 dump settings-xfade
 grep -q 'Crossfade: 5 s' "$OUT/settings-xfade.xml" || fail "choosing a 5 s crossfade didn't stick"
 tap_clear "Even volume"
-sleep 3 # long enough to measure the song playing now
-dump settings-on
+# The song playing now is measured first (decoded once); allow a slow emulator up to 15 s.
+for i in 1 2 3 4 5; do
+  sleep 3
+  dump settings-on
+  grep -q "turned up\|turned down\|already at the right level" "$OUT/settings-on.xml" && break
+done
 grep -q "turned up\|turned down\|already at the right level" "$OUT/settings-on.xml" \
-  || fail "the Even volume switch didn't turn on (no level shown for the song playing)"
+  || fail "the Even volume switch didn't turn on (no level shown for the song playing; switch: $(grep -o 'content-desc="Even volume"[^>]*checked="[a-z]*"' "$OUT/settings-on.xml" | grep -o 'checked="[a-z]*"'))"
 adb shell input keyevent KEYCODE_BACK
 sleep 1
 chip "Songs"
