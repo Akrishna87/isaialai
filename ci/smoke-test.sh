@@ -288,7 +288,19 @@ SIZE=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); W=${SIZE%x*}; H=$
 adb shell "input tap $((W * 3 / 4)) $((H * 38 / 100)) & sleep 0.12; input tap $((W * 3 / 4)) $((H * 38 / 100))"
 sleep 2
 DT=$(pos)
-if [ $((DT - BACK)) -ge 9000 ]; then echo "double-tapping the cover jumped ahead: $BACK -> $DT ms"
+if [ $((DT - BACK)) -ge 9000 ]; then
+  echo "double-tapping the right of the cover jumped ahead: $BACK -> $DT ms"
+  # Go back again, so the song doesn't run out during the next tests (they expect it to keep playing).
+  adb shell "input tap $((W / 4)) $((H * 38 / 100)) & sleep 0.12; input tap $((W / 4)) $((H * 38 / 100))"
+  sleep 2
+  DT2=$(pos)
+  if [ $((DT - DT2)) -ge 9000 ]; then echo "double-tapping the left of the cover jumped back: $DT -> $DT2 ms"
+  else
+    echo "(note: the second double tap didn't register: $DT -> $DT2 ms)"
+    dump after-double-tap
+    tap after-double-tap "Back 10 seconds"
+    sleep 1
+  fi
 else echo "(note: adb's taps weren't quick enough to count as a double tap: $BACK -> $DT ms)"; fi
 adb shell input keyevent KEYCODE_MEDIA_PLAY
 sleep 1
