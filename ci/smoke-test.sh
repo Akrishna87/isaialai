@@ -720,10 +720,14 @@ sleep 1
 dump settings-xfade
 grep -q 'Crossfade: 5 s' "$OUT/settings-xfade.xml" || fail "choosing a 5 s crossfade didn't stick"
 tap_clear "Even volume"
-sleep 3 # long enough to measure the song playing now
-dump settings-on
+# The song playing now is measured first (decoded once); allow a slow emulator up to 15 s.
+for i in 1 2 3 4 5; do
+  sleep 3
+  dump settings-on
+  grep -q "turned up\|turned down\|already at the right level" "$OUT/settings-on.xml" && break
+done
 grep -q "turned up\|turned down\|already at the right level" "$OUT/settings-on.xml" \
-  || fail "the Even volume switch didn't turn on (no level shown for the song playing)"
+  || fail "the Even volume switch didn't turn on (no level shown for the song playing; switch: $(grep -o 'content-desc="Even volume"[^>]*checked="[a-z]*"' "$OUT/settings-on.xml" | grep -o 'checked="[a-z]*"'))"
 adb shell input keyevent KEYCODE_BACK
 sleep 1
 chip "Songs"
