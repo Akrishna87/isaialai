@@ -3,7 +3,7 @@ name: Music player signing key (one-time setup)
 # Run once, by hand, after adding the SIGNING_PASSPHRASE repository secret.
 # Makes Isaialai's private signing key, records the move from the old public
 # key to it (so phones update without uninstalling), and commits the key
-# encrypted with that passphrase. See music-player-android/SECURITY.md.
+# encrypted with that passphrase. See SECURITY.md.
 
 on:
   workflow_dispatch:
@@ -23,9 +23,6 @@ permissions:
 jobs:
   make-key:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: music-player-android
     env:
       SIGNING_PASSPHRASE: ${{ secrets.SIGNING_PASSPHRASE }}
     steps:

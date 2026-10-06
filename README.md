@@ -12,7 +12,7 @@ themselves.
 ## Installing it
 
 1. On your Android phone, open the
-   [latest build](https://github.com/Akrishna87/Akrishna87/releases/tag/music-player-latest)
+   [latest build](https://github.com/Akrishna87/isaialai/releases/tag/music-player-latest)
    and tap **Isaialai.apk** to download it. The same file is also there as
    `MyMusic.apk`, so older links keep working.
 2. Open the downloaded file. Android will ask you to allow installing apps

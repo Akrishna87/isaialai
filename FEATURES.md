@@ -31,4 +31,4 @@
 🧹 Duplicate finder to clean up songs saved twice.
 🛡️ Private and secure: no internet access, and updates signed with the app's own key.
 
-⬇️ Download: https://github.com/Akrishna87/Akrishna87/releases/download/music-player-latest/Isaialai.apk
+⬇️ Download: https://github.com/Akrishna87/isaialai/releases/download/music-player-latest/Isaialai.apk

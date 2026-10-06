@@ -3,7 +3,7 @@ name: Music player APK
 on:
   push:
     paths:
-      - "music-player-android/**"
+      - "**"
       - ".github/workflows/music-player-apk.yml"
   workflow_dispatch:
 
@@ -17,9 +17,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: music-player-android
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
@@ -40,7 +37,7 @@ jobs:
           mkdir -p old-key
           cp "$built" old-key/old-key-only.apk  # for the update test only; never published
           if [ ! -e signing/release.keystore.gpg ]; then
-            echo "::warning::No private signing key yet, so this build is signed with the old public key. See music-player-android/SECURITY.md."
+            echo "::warning::No private signing key yet, so this build is signed with the old public key. See SECURITY.md."
             cp "$built" Isaialai.apk
             exit 0
           fi
@@ -70,11 +67,11 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: MyMusic-apk
-          path: music-player-android/Isaialai.apk
+          path: Isaialai.apk
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: old-key-apk
-          path: music-player-android/old-key/old-key-only.apk
+          path: old-key/old-key-only.apk
           retention-days: 3
 
   smoke-test:
@@ -95,7 +92,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: songs
-          key: test-songs-${{ hashFiles('music-player-android/ci/make-test-songs.sh') }}
+          key: test-songs-${{ hashFiles('ci/make-test-songs.sh') }}
       - name: Make test songs
         if: steps.songs.outputs.cache-hit != 'true'
         timeout-minutes: 25
@@ -103,9 +100,9 @@ jobs:
           set -x
           # Some runners have no ffmpeg; skip the optional extras to keep the install small.
           command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg)
-          bash music-player-android/ci/make-test-songs.sh songs
+          bash ci/make-test-songs.sh songs
       - name: Make the derived test songs and cover picture
-        run: bash music-player-android/ci/derive-test-songs.sh songs
+        run: bash ci/derive-test-songs.sh songs
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -122,8 +119,8 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim -camera-back none
           script: |
-            bash music-player-android/ci/update-test.sh old-key/old-key-only.apk apk/Isaialai.apk
-            bash music-player-android/ci/smoke-test.sh apk/Isaialai.apk songs smoke-out
+            bash ci/update-test.sh old-key/old-key-only.apk apk/Isaialai.apk
+            bash ci/smoke-test.sh apk/Isaialai.apk songs smoke-out
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
