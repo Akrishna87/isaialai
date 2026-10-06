@@ -82,6 +82,10 @@ A one-line-per-feature list, ready to share, is in [FEATURES.md](FEATURES.md).
   slide to any speed in between, without changing the key. Pitch moves the
   key up or down by up to 6 semitones (handy for singing along) without
   changing the speed. Both stay until you tap Reset.
+- **Jump back or forward 10 seconds**: tap ⏪10 or ⏩10 under the seek bar on
+  the full player, or double-tap the left or right half of the cover. The
+  same buttons are on the lock-screen player, and in the notification and
+  lock-screen controls (under ⋮ or the extra buttons, depending on the phone).
 - **Settings** (gear on Home, or Library ⋮ → Settings):
   - **Appearance**: Dark, Light, or Match phone. On Android 12 and later,
     **Colours from your wallpaper** uses your phone's Material You colours for
@@ -139,7 +143,8 @@ A one-line-per-feature list, ready to share, is in [FEATURES.md](FEATURES.md).
   Even volume and the equaliser, and stays on until you turn it off.
 - **Swipe gestures**:
   - On the mini player: swipe left for the next song, right for the previous one.
-  - On the full player: swipe the cover to change song, and swipe down to close.
+  - On the full player: swipe the cover to change song, double-tap its left or
+    right half to jump 10 seconds, and swipe down to close.
 - **Android Auto**: Isaialai shows up in Android Auto (and cars with Android
   built in). Browse Recently played, Liked songs, Playlists, Albums & movies,
   Artists, Music directors or All songs on the car's screen; picking a song

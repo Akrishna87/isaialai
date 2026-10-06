@@ -10,6 +10,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -75,6 +76,14 @@ fun NowPlaying(vm: MusicViewModel) {
     val dragDown = remember { Animatable(0f) }
     // Swipe the cover sideways to change song.
     var swipeX by remember { mutableFloatStateOf(0f) }
+    // Double-tap the left or right of the cover to jump 10 s; shows "−10 s" / "+10 s" briefly.
+    var jumpFlash by remember { mutableStateOf<Pair<Int, Long>?>(null) }
+    LaunchedEffect(jumpFlash) {
+        if (jumpFlash != null) {
+            delay(650)
+            jumpFlash = null
+        }
+    }
 
     AlwaysDark {
         Box(
@@ -141,6 +150,13 @@ fun NowPlaying(vm: MusicViewModel) {
                                         change.consume()
                                         swipeX += dx
                                     }
+                                }
+                                .pointerInput(Unit) {
+                                    detectTapGestures(onDoubleTap = { at ->
+                                        val dir = if (at.x < size.width / 2f) -1 else 1
+                                        if (dir < 0) vm.rewind10() else vm.forward10()
+                                        jumpFlash = dir to System.nanoTime()
+                                    })
                                 },
                             contentAlignment = Alignment.Center,
                         ) {
@@ -159,6 +175,9 @@ fun NowPlaying(vm: MusicViewModel) {
                                 shape = RoundedCornerShape(10.dp),
                                 iconSize = 110.dp,
                             )
+                            jumpFlash?.let { (dir, _) ->
+                                JumpBadge(dir, Modifier.align(if (dir < 0) Alignment.CenterStart else Alignment.CenterEnd).padding(horizontal = 20.dp))
+                            }
                         }
                     }
                 }
@@ -193,8 +212,16 @@ fun NowPlaying(vm: MusicViewModel) {
                     onDrag = { dragFraction = it },
                     enabled = duration > 0,
                 )
-                Row {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(formatTime(dragFraction?.let { (it * duration).toLong() } ?: vm.positionMs), color = dim, fontSize = 12.sp)
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = { vm.rewind10() }, enabled = duration > 0) {
+                        Icon(Icons.Rounded.Replay10, "Back 10 seconds", tint = dim, modifier = Modifier.size(28.dp))
+                    }
+                    Spacer(Modifier.width(28.dp))
+                    IconButton(onClick = { vm.forward10() }, enabled = duration > 0) {
+                        Icon(Icons.Rounded.Forward10, "Forward 10 seconds", tint = dim, modifier = Modifier.size(28.dp))
+                    }
                     Spacer(Modifier.weight(1f))
                     Text(formatTime(duration), color = dim, fontSize = 12.sp)
                 }
@@ -663,4 +690,17 @@ private fun SpeedDialog(vm: MusicViewModel, onDismiss: () -> Unit) {
             TextButton(onClick = { speed = 1f; semis = 0; apply() }) { Text("Reset") }
         },
     )
+}
+
+/** The "−10 s" / "+10 s" bubble shown after double-tapping the cover. */
+@Composable
+private fun JumpBadge(dir: Int, modifier: Modifier = Modifier) {
+    Row(
+        modifier.clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(if (dir < 0) Icons.Rounded.Replay10 else Icons.Rounded.Forward10, contentDescription = null, modifier = Modifier.size(22.dp))
+        Text(if (dir < 0) "−10 s" else "+10 s", fontWeight = FontWeight.SemiBold)
+    }
 }
