@@ -731,6 +731,23 @@ for i in 1 2 3 4 5; do
     tap_clear "Even volume"
   fi
 done
+if ! grep -q "turned up\|turned down\|already at the right level" "$OUT/settings-on.xml"; then
+  # Where would a tap on "Even volume" land, and what's there?
+  python3 - "$OUT/settings-on.xml" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+nodes = list(ET.parse(sys.argv[1]).iter("node"))
+def box(n): return [int(v) for v in re.findall(r"\d+", n.get("bounds", "[0,0][0,0]"))]
+target = next((n for n in nodes if n.get("text") == "Even volume" or n.get("content-desc") == "Even volume"), None)
+if target is None: print("no Even volume node"); sys.exit()
+x1, y1, x2, y2 = box(target); cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+print("Even volume node", target.get("bounds"), "tap at", cx, cy, "checked", target.get("checked"), "clickable", target.get("clickable"))
+for n in nodes:
+    a1, b1, a2, b2 = box(n)
+    if a1 <= cx <= a2 and b1 <= cy <= b2:
+        print("  at the tap:", n.get("class"), repr(n.get("text")), repr(n.get("content-desc")), n.get("bounds"), "clickable", n.get("clickable"), "checkable", n.get("checkable"))
+PY
+  adb shell dumpsys window | grep -E "mCurrentFocus|mFocusedApp" || true
+fi
 grep -q "turned up\|turned down\|already at the right level" "$OUT/settings-on.xml" \
   || fail "the Even volume switch didn't turn on (no level shown for the song playing; switch: $(grep -o 'content-desc="Even volume"[^>]*checked="[a-z]*"' "$OUT/settings-on.xml" | grep -o 'checked="[a-z]*"'))"
 adb shell input keyevent KEYCODE_BACK
