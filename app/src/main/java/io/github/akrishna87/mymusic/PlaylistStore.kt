@@ -12,6 +12,8 @@ data class Playlist(val id: String, val name: String, val songIds: List<String>)
 class PlaylistStore(context: Context) {
     private val prefs = context.getSharedPreferences("playlists", Context.MODE_PRIVATE)
     val items = mutableStateListOf<Playlist>()
+    /** Called after every change (used to keep the backup up to date). */
+    var onChange: (() -> Unit)? = null
 
     init {
         try {
@@ -33,6 +35,7 @@ class PlaylistStore(context: Context) {
             arr.put(JSONObject().put("id", p.id).put("name", p.name).put("songs", JSONArray(p.songIds)))
         }
         prefs.edit().putString("data", arr.toString()).apply()
+        onChange?.invoke()
     }
 
     fun get(id: String): Playlist? = items.firstOrNull { it.id == id }
@@ -81,6 +84,32 @@ class PlaylistStore(context: Context) {
         val p = get(id) ?: return 0
         val fresh = songIds.filter { it !in p.songIds }.distinct()
         if (fresh.isNotEmpty()) update(id) { it.copy(songIds = it.songIds + fresh) }
+        return fresh.size
+    }
+
+    /**
+     * Adds [songIds] to your playlist called [name], making it if there isn't one (restoring a
+     * backup twice, or importing a file again, doesn't make copies). Returns how many were new.
+     */
+    fun importPlaylist(name: String, songIds: List<String>): Int {
+        val existing = userPlaylists.firstOrNull { it.name.equals(name.trim(), ignoreCase = true) }
+        if (existing == null) {
+            create(name.trim().ifEmpty { "Playlist" }, songIds)
+            return songIds.distinct().size
+        }
+        return add(existing.id, songIds)
+    }
+
+    /** Likes all of [songIds] (in that order, after any already liked). Returns how many were new. */
+    fun likeAll(songIds: List<String>): Int {
+        val fresh = songIds.distinct().filter { !isLiked(it) }
+        if (fresh.isEmpty()) return 0
+        if (liked == null) {
+            items.add(0, Playlist(LIKED_ID, "Liked songs", fresh))
+            save()
+        } else {
+            update(LIKED_ID) { it.copy(songIds = it.songIds + fresh) }
+        }
         return fresh.size
     }
 

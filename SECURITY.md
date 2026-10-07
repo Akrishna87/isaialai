@@ -12,9 +12,19 @@ Results of a code review of Isaialai and what was changed.
 - **Limited storage access.** It asks for `READ_MEDIA_AUDIO` (or
   `READ_EXTERNAL_STORAGE` on Android 12 and older) and read-only access to
   folders you add. It never changes your existing files. It only adds new
-  ones you ask for: cut songs and ringtones, saved through Android's media
-  library (`WRITE_EXTERNAL_STORAGE` only on Android 9 and older). It deletes
+  ones: cut songs and ringtones you ask for, and its backup folder (below),
+  saved through Android's media library (`WRITE_EXTERNAL_STORAGE` only on
+  Android 9 and older). It deletes
   a file only from the duplicate finder, after Android asks you to confirm.
+- **Backups stay on the phone, where you can see them.** Automatic backup
+  (Settings → Backup & restore, on by default, can be turned off) writes
+  playlists, liked songs, play counts and history, song edits and settings to
+  `Download/Isaialai`. Nothing is uploaded. Like any file in Download, other
+  apps with access to all your files can read it. Restoring only reads the
+  folder or file you pick, and treats it as data: playlist and backup files
+  are parsed, never run, are limited to 20 MB, and settings from a backup
+  are range-checked. Isaialai keeps access only to the folder you restored
+  from, to keep the backup there up to date.
 - **Ringtones only with your say-so.** Setting a cut as your ringtone,
   notification or alarm sound uses `WRITE_SETTINGS`. Android keeps that off
   until you turn on "Allow modifying system settings" for Isaialai, and the
@@ -81,6 +91,8 @@ The app allowed Android backup, which copies its data (play history, playlists,
 which folders you added) to cloud backups and onto new phones.
 **Fix:** backups and device-to-device transfer are turned off
 (`android:allowBackup="false"`, `res/xml/data_extraction_rules.xml`).
+Isaialai's own backup (see above) replaces them: a local folder you can see,
+copy or delete, and turn off.
 
 ### 4. Build pipeline (low)
 

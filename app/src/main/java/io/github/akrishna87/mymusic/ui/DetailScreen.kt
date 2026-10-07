@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.SaveAlt
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -43,6 +44,7 @@ import io.github.akrishna87.mymusic.AlbumGroup
 import io.github.akrishna87.mymusic.FolderLevel
 import io.github.akrishna87.mymusic.SmartPlaylist
 import io.github.akrishna87.mymusic.LibraryGrouping
+import io.github.akrishna87.mymusic.M3u
 import io.github.akrishna87.mymusic.MusicViewModel
 import io.github.akrishna87.mymusic.NameRequest
 import io.github.akrishna87.mymusic.PlaylistStore
@@ -264,6 +266,10 @@ fun DetailScreen(vm: MusicViewModel, screen: Screen) {
                 }
             }
             val id = detail?.playlistId
+            if (id != null) {
+                val export = rememberPlaylistExporter(vm, id)
+                IconButton(onClick = { export(M3u.fileName(detail?.title.orEmpty())) }) { Icon(Icons.Rounded.SaveAlt, "Save as playlist file") }
+            }
             if (id != null && detail?.kind == DetailKind.PLAYLIST) {
                 IconButton(onClick = {
                     vm.nameRequest = NameRequest("Rename playlist", detail?.title.orEmpty()) { vm.playlists.rename(id, it) }

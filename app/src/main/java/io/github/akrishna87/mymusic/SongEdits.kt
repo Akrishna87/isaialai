@@ -13,6 +13,8 @@ class SongEdits(context: Context) {
 
     private val prefs = context.getSharedPreferences("edits", Context.MODE_PRIVATE)
     private val edits = HashMap<String, Edit>()
+    /** Called after every change (used to keep the backup up to date). */
+    var onChange: (() -> Unit)? = null
 
     init {
         try {
@@ -32,7 +34,10 @@ class SongEdits(context: Context) {
             o.put(id, JSONObject().put("t", e.title).put("a", e.artist).put("al", e.album).put("c", e.composer).put("y", e.year))
         }
         prefs.edit().putString("data", o.toString()).apply()
+        onChange?.invoke()
     }
+
+    fun all(): Map<String, Edit> = HashMap(edits)
 
     fun isEdited(songId: String) = songId in edits
 

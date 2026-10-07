@@ -220,6 +220,12 @@ object ThemeSettings {
         lockScreenPlayer = p.getBoolean("lockScreenPlayer", true)
     }
 
+    /** Reads the choice again (after restoring a backup). */
+    fun reload(context: Context) {
+        loaded = false
+        load(context)
+    }
+
     fun setLockScreenPlayer(context: Context, on: Boolean) {
         lockScreenPlayer = on
         prefs(context).edit().putBoolean("lockScreenPlayer", on).apply()

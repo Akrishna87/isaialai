@@ -57,6 +57,8 @@ fun SettingsScreen(vm: MusicViewModel) {
             item { ResumeCard(vm) }
             item { EvenVolumeCard(vm) }
             item { SettingsCard { BoostControls(vm) } }
+            item { SettingsHeading("Backup & restore") }
+            item { BackupCard(vm) }
             item { SettingsHeading("Tools") }
             item { LinkRow(Icons.Rounded.Tune, "Equalizer", "Presets, bands and bass boost") { vm.showEqualizer = true } }
             item { LinkRow(Icons.Rounded.ContentCopy, "Find duplicate songs", "Songs saved more than once") { vm.open(Screen.Duplicates) } }
@@ -213,7 +215,7 @@ private fun LinkRow(icon: ImageVector, title: String, subtitle: String, onClick:
 
 /** A setting that's on or off: tap anywhere on the row to switch it. */
 @Composable
-private fun SwitchRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+fun SwitchRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
