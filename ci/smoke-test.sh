@@ -1034,12 +1034,23 @@ adb shell input keyevent KEYCODE_MEDIA_PLAY
 sleep 2
 
 echo "--- Reorder songs in a playlist"
-on_screen() { # on_screen <text>: scroll down until <text> is on screen (and above the mini player)
-  local i
-  for i in 1 2 3 4 5; do
-    dump on-screen
-    python3 "$HERE/find_text.py" "$OUT/on-screen.xml" "$1" exact > /dev/null 2>&1 && return 0
-    scroll_down
+scroll_step() { # drag the list up by a third of the screen and let go without a fling, so no row is skipped
+  local size w h x
+  size=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); w=${size%x*}; h=${size#*x}; x=$((w / 2))
+  adb shell "input motionevent DOWN $x $((h * 65 / 100)); input motionevent MOVE $x $((h * 55 / 100)); input motionevent MOVE $x $((h * 45 / 100)); input motionevent MOVE $x $((h * 35 / 100)); sleep 0.4; input motionevent UP $x $((h * 35 / 100))"
+  sleep 1
+}
+on_screen() { # on_screen <text>: scroll down until <text> is on screen; if it isn't found, start again from the top
+  local pass i size w h
+  for pass in 1 2; do
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+      dump on-screen
+      python3 "$HERE/find_text.py" "$OUT/on-screen.xml" "$1" exact > /dev/null 2>&1 && return 0
+      scroll_step
+    done
+    size=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); w=${size%x*}; h=${size#*x}
+    for _ in 1 2 3 4 5; do adb shell input swipe $((w / 2)) $((h * 30 / 100)) $((w / 2)) $((h * 80 / 100)) 150; done
+    sleep 1
   done
   fail "couldn't find '$1'"
 }
