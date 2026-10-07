@@ -720,36 +720,30 @@ sleep 1
 dump settings-xfade
 grep -q 'Crossfade: 5 s' "$OUT/settings-xfade.xml" || fail "choosing a 5 s crossfade didn't stick"
 tap_clear "Even volume"
-# The song playing now is measured first (decoded once); allow a slow emulator up to 15 s.
-for i in 1 2 3 4 5; do
+# The switch is the checkable row around the "Even volume" label (the label's own node isn't).
+even_switch() { python3 - "$OUT/$1.xml" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+nodes = list(ET.parse(sys.argv[1]).iter("node"))
+box = lambda n: [int(v) for v in re.findall(r"\d+", n.get("bounds", "[0,0][0,0]"))]
+label = next((n for n in nodes if n.get("text") == "Even volume"), None)
+if label is None: print("not on screen"); sys.exit()
+x1, y1, x2, y2 = box(label); cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+for n in nodes:
+    a1, b1, a2, b2 = box(n)
+    if n.get("checkable") == "true" and a1 <= cx <= a2 and b1 <= cy <= b2:
+        print("on" if n.get("checked") == "true" else "off"); sys.exit()
+print("unknown")
+PY
+}
+# The song playing now is measured first (decoded once); allow a slow emulator up to 30 s.
+for i in $(seq 1 10); do
   sleep 3
   dump settings-on
   grep -q "turned up\|turned down\|already at the right level" "$OUT/settings-on.xml" && break
-  # The emulator sometimes drops a tap; if the switch didn't move, tap it again (once).
-  if [ "$i" = 1 ] && grep -q 'content-desc="Even volume"[^>]*checked="false"' "$OUT/settings-on.xml"; then
-    echo "(the tap on Even volume didn't register; tapping again)"
-    tap_clear "Even volume"
-  fi
+  if [ "$i" = 1 ]; then echo "Even volume switch after tapping: $(even_switch settings-on)"; fi
 done
-if ! grep -q "turned up\|turned down\|already at the right level" "$OUT/settings-on.xml"; then
-  # Where would a tap on "Even volume" land, and what's there?
-  python3 - "$OUT/settings-on.xml" <<'PY'
-import re, sys, xml.etree.ElementTree as ET
-nodes = list(ET.parse(sys.argv[1]).iter("node"))
-def box(n): return [int(v) for v in re.findall(r"\d+", n.get("bounds", "[0,0][0,0]"))]
-target = next((n for n in nodes if n.get("text") == "Even volume" or n.get("content-desc") == "Even volume"), None)
-if target is None: print("no Even volume node"); sys.exit()
-x1, y1, x2, y2 = box(target); cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
-print("Even volume node", target.get("bounds"), "tap at", cx, cy, "checked", target.get("checked"), "clickable", target.get("clickable"))
-for n in nodes:
-    a1, b1, a2, b2 = box(n)
-    if a1 <= cx <= a2 and b1 <= cy <= b2:
-        print("  at the tap:", n.get("class"), repr(n.get("text")), repr(n.get("content-desc")), n.get("bounds"), "clickable", n.get("clickable"), "checkable", n.get("checkable"))
-PY
-  adb shell dumpsys window | grep -E "mCurrentFocus|mFocusedApp" || true
-fi
 grep -q "turned up\|turned down\|already at the right level" "$OUT/settings-on.xml" \
-  || fail "the Even volume switch didn't turn on (no level shown for the song playing; switch: $(grep -o 'content-desc="Even volume"[^>]*checked="[a-z]*"' "$OUT/settings-on.xml" | grep -o 'checked="[a-z]*"'))"
+  || fail "the Even volume switch didn't turn on (no level shown for the song playing; switch: $(even_switch settings-on))"
 adb shell input keyevent KEYCODE_BACK
 sleep 1
 chip "Songs"
