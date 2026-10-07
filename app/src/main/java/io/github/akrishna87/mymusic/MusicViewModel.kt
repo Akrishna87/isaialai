@@ -29,6 +29,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import io.github.akrishna87.mymusic.ui.formatTime
 import io.github.akrishna87.mymusic.ui.songCount
@@ -136,6 +137,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     var evenVolumeNow by mutableStateOf(readEvenVolumeNow()); private set
     var resumeMode by mutableStateOf(Effects.resumeMode(effectsPrefs)); private set
     private val effectsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { p, key ->
+        if (key in Effects.BACKUP_KEYS) requestBackup()
         resumeMode = Effects.resumeMode(p)
         if (key == Effects.KEY_RESUMED) {
             p.getString(Effects.KEY_RESUMED, null)?.split('|')?.takeIf { it.size == 3 }?.let { (title, pos, _) ->
@@ -268,6 +270,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     override fun onCleared() {
         effectsPrefs.unregisterOnSharedPreferenceChangeListener(effectsListener)
         resumePrefs.unregisterOnSharedPreferenceChangeListener(resumeListener)
+        prefs.unregisterOnSharedPreferenceChangeListener(uiListener)
         if (observing) getApplication<Application>().contentResolver.unregisterContentObserver(mediaObserver)
         controller?.removeListener(playerListener)
         MediaController.releaseFuture(controllerFuture)
@@ -335,6 +338,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             if (announce) messageChannel.trySend("Found ${songCount(songs.size)}")
+            requestBackup()
         }
     }
 
@@ -451,6 +455,11 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         playCounts[id] = (playCounts[id] ?: 0) + 1
         lastPlayed[id] = System.currentTimeMillis()
         countsVersion++
+        saveHistory()
+        requestBackup(delayMs = 15_000)
+    }
+
+    private fun saveHistory() {
         prefs.edit()
             .putString("history", org.json.JSONArray(history).toString())
             .putString("counts", org.json.JSONObject(playCounts as Map<*, *>).toString())
@@ -711,4 +720,208 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         if (screens.lastOrNull() == Screen.PlaylistDetail(id)) screens.removeAt(screens.lastIndex)
         messageChannel.trySend("Playlist deleted")
     }
+
+    // ----- Backup & restore -----
+
+    private val backupStorage = BackupStorage(app)
+    var autoBackup by mutableStateOf(backupStorage.autoBackup); private set
+    /** Goes up after each backup, so what Settings shows about it refreshes. */
+    var backupVersion by mutableIntStateOf(0); private set
+    /** A backup or playlist file that's been read, waiting for you to confirm restoring it. */
+    var restorePlan by mutableStateOf<RestorePlan?>(null)
+    private var backupJob: Job? = null
+    /** One backup at a time (a cancelled one may still be finishing its writes). */
+    private val backupLock = kotlinx.coroutines.sync.Mutex()
+    private val uiListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key in BackupSettings.UI_KEYS) requestBackup()
+    }
+
+    init {
+        playlists.onChange = { requestBackup() }
+        edits.onChange = { requestBackup() }
+        prefs.registerOnSharedPreferenceChangeListener(uiListener)
+    }
+
+    val backupLocation: String get() = backupStorage.location
+    val lastBackupAt: Long get() = backupStorage.lastBackupAt
+    val backupError: String? get() = backupStorage.lastError
+    fun backupNeedsPermission(): Boolean = backupStorage.needsPermission()
+
+    fun setAutoBackupOn(on: Boolean) {
+        backupStorage.autoBackup = on
+        autoBackup = on
+        if (on) requestBackup(delayMs = 0)
+    }
+
+    /** Backs up a little after the last change, so a burst of changes is written once. */
+    fun requestBackup(delayMs: Long = 4_000) {
+        if (!backupStorage.autoBackup) return
+        backupJob?.cancel()
+        backupJob = viewModelScope.launch {
+            delay(delayMs)
+            runBackup(force = false)
+        }
+    }
+
+    fun backUpNow() {
+        if (loading || rawSongs.isEmpty()) {
+            messageChannel.trySend("Wait for your songs to load, then try again")
+            return
+        }
+        backupJob?.cancel()
+        viewModelScope.launch {
+            val ok = runBackup(force = true)
+            messageChannel.trySend(
+                when {
+                    ok == true -> "Backed up to $backupLocation"
+                    ok == null -> "Nothing to back up yet"
+                    else -> backupStorage.lastError ?: "Couldn't save the backup"
+                },
+            )
+        }
+    }
+
+    /**
+     * Writes the backup file and a .m3u file per playlist. Returns null if there's nothing worth
+     * backing up (a fresh install), so an old backup isn't buried under an empty one.
+     */
+    private suspend fun runBackup(force: Boolean): Boolean? {
+        // Before the library is read (or without permission to read it) songs can't be described.
+        if (loading || rawSongs.isEmpty()) return if (force) false else null
+        val app = getApplication<Application>()
+        val lists = playlists.items.toList()
+        val recent = history
+        val counts = HashMap(playCounts)
+        val last = HashMap(lastPlayed)
+        val edited = edits.all()
+        val byId = rawSongs.associateBy { it.id }
+        val result = backupLock.withLock { withContext(Dispatchers.IO) {
+            val cache = RefCache.load(app)
+            // Songs not on the phone right now (memory card out?) keep how they were last described.
+            fun ref(id: String): SongRef? = byId[id]?.let { SongRef.of(it) }?.also { cache[id] = it } ?: cache[id]
+            val liked = lists.firstOrNull { it.id == PlaylistStore.LIKED_ID }
+            val own = lists.filter { it.id != PlaylistStore.LIKED_ID }
+            val contents = BackupFile.Contents(
+                createdMs = System.currentTimeMillis(),
+                playlists = own.map { p -> p.name to p.songIds.mapNotNull(::ref) },
+                liked = liked?.songIds?.mapNotNull(::ref).orEmpty(),
+                history = recent.mapNotNull(::ref),
+                plays = counts.mapNotNull { (id, n) -> ref(id)?.let { BackupFile.Play(it, n, last[id] ?: 0L) } },
+                edits = edited.mapNotNull { (id, e) -> ref(id)?.let { it to e } },
+                settings = BackupSettings.snapshot(app),
+            )
+            if (contents.isEmpty && !force) return@withContext null
+            val files = LinkedHashMap<String, String>()
+            val sameAs = HashMap<String, String>()
+            files[BackupFile.NAME] = BackupFile.write(contents)
+            // The time it was made changes every time; only rewrite the file when the rest does.
+            sameAs[BackupFile.NAME] = BackupFile.write(BackupFile.Contents(0, contents.playlists, contents.liked, contents.history, contents.plays, contents.edits, contents.settings))
+            val m3u = listOf("Liked songs" to contents.liked).filter { it.second.isNotEmpty() } + contents.playlists
+            for ((name, songs) in m3u) {
+                var file = "$PLAYLISTS_DIR/" + M3u.fileName(name)
+                var n = 2
+                while (file in files) file = "$PLAYLISTS_DIR/" + M3u.fileName("$name ($n)").also { n++ }
+                files[file] = M3u.write(name, songs)
+            }
+            val keep = (lists.flatMap { it.songIds } + recent + counts.keys + edited.keys).toSet()
+            RefCache.save(app, cache.filterKeys { it in keep })
+            backupStorage.writeAll(files, sameAs, force)
+        } }
+        backupVersion++
+        return result
+    }
+
+    /** Reads the backup (or the playlist files) in a folder you picked, to show what it holds. */
+    fun readRestoreFolder(tree: Uri) {
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            val songsNow = rawSongs
+            val plan = withContext(Dispatchers.IO) {
+                try {
+                    RestorePlan.fromFolder(app, tree, songsNow)
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            if (plan == null) messageChannel.trySend("No Isaialai backup or playlist files in that folder")
+            else restorePlan = plan
+        }
+    }
+
+    /** Reads a backup or playlist file you picked. */
+    fun readRestoreFile(uri: Uri) {
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            val songsNow = rawSongs
+            val plan = withContext(Dispatchers.IO) { RestorePlan.fromFile(app, uri, songsNow) }
+            if (plan == null) messageChannel.trySend("That isn't an Isaialai backup or a playlist file")
+            else restorePlan = plan
+        }
+    }
+
+    /** Adds what's in [plan] to what's here; nothing already here is removed or replaced. */
+    fun restore(plan: RestorePlan, withSettings: Boolean) {
+        restorePlan = null
+        val app = getApplication<Application>()
+        var added = 0
+        plan.playlists.forEach { (name, ids) -> added += playlists.importPlaylist(name, ids) }
+        val liked = playlists.likeAll(plan.liked)
+        for ((id, count, at) in plan.plays) {
+            playCounts[id] = maxOf(playCounts[id] ?: 0, count)
+            lastPlayed[id] = maxOf(lastPlayed[id] ?: 0L, at)
+        }
+        if (plan.history.isNotEmpty()) history = (history + plan.history.filter { it !in history }).take(100)
+        plan.edits.forEach { (id, e) -> if (!edits.isEdited(id)) edits.set(id, e) }
+        if (withSettings && plan.settings != null) {
+            BackupSettings.apply(app, plan.settings)
+            ThemeSettings.reload(app)
+            sort = SongSort.entries.getOrElse(prefs.getInt("sort", 0)) { SongSort.TITLE }
+        }
+        countsVersion++
+        saveHistory()
+        if (plan.edits.isNotEmpty()) publish(rawSongs)
+        viewModelScope.launch {
+            // Keep backing up into the folder restored from, so there's one backup, not two.
+            plan.adoptFolder?.let { folder -> backupLock.withLock { withContext(Dispatchers.IO) { backupStorage.adopt(folder) } } }
+            backupVersion++
+            requestBackup(delayMs = 1_000)
+        }
+
+        val what = buildList {
+            if (plan.playlists.isNotEmpty()) add(if (plan.playlists.size == 1) "“${plan.playlists[0].first}”" else "${plan.playlists.size} playlists")
+            if (plan.liked.isNotEmpty()) add("${plan.liked.size} liked ${if (plan.liked.size == 1) "song" else "songs"}")
+            if (plan.plays.isNotEmpty()) add("play counts")
+            if (withSettings && plan.settings != null) add("settings")
+        }
+        val text = if (what.isEmpty()) "Nothing new to restore" else "Restored " + what.joinToString(", ").replace(Regex(", ([^,]*)$"), " and $1")
+        val missing = if (plan.missing == 0) "" else
+            "\n${songCount(plan.missing)} ${if (plan.missing == 1) "isn't" else "aren't"} on this phone. Copy your music over, then restore again to add ${if (plan.missing == 1) "it" else "them"}."
+        if (added + liked == 0 && plan.missing == 0 && what.isEmpty()) messageChannel.trySend("Already up to date")
+        else messageChannel.trySend(text + missing)
+    }
+
+    /** Saves one playlist as a .m3u file wherever you chose. */
+    fun exportPlaylist(playlistId: String, target: Uri) {
+        val p = playlists.get(playlistId) ?: return
+        val byId = rawSongs.associateBy { it.id }
+        val text = M3u.write(p.name, p.songIds.mapNotNull { byId[it]?.let { s -> SongRef.of(s) } })
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                try {
+                    val resolver = getApplication<Application>().contentResolver
+                    val out = try {
+                        resolver.openOutputStream(target, "wt")
+                    } catch (e: IllegalArgumentException) {
+                        resolver.openOutputStream(target, "w")
+                    }
+                    out?.use { it.write(text.toByteArray()) } != null
+                } catch (e: Exception) {
+                    false
+                }
+            }
+            messageChannel.trySend(if (ok) "Saved “${p.name}” as a playlist file" else "Couldn't save the playlist file")
+        }
+    }
 }
+
+private const val PLAYLISTS_DIR = "Playlists"

@@ -1186,6 +1186,158 @@ D=$(grep -o "duration=[0-9]*" <<<"$ring" | head -1 | cut -d= -f2)
 echo "PASS: any song can be made the phone's ringtone (with Android's permission)"
 adb shell settings put system ringtone "$BEFORE_RINGTONE" > /dev/null 2>&1 || true
 
+echo "--- Backup: playlists as .m3u files, and everything in one backup file, in Download/Isaialai"
+BK=/sdcard/Download/Isaialai
+for _ in $(seq 1 15); do adb shell "ls '$BK/Playlists/Order Test.m3u'" > /dev/null 2>&1 && break; sleep 2; done
+adb shell "ls -lR '$BK'" || true
+adb shell "cat '$BK/Playlists/Order Test.m3u'" > "$OUT/order-test.m3u" 2>/dev/null \
+  || fail "the 'Order Test' playlist wasn't saved as Download/Isaialai/Playlists/Order Test.m3u"
+cat "$OUT/order-test.m3u"
+head -1 "$OUT/order-test.m3u" | grep -q "^#EXTM3U" || fail "the playlist file isn't a .m3u playlist"
+M3U_SONGS=$(grep -v '^#' "$OUT/order-test.m3u" | tr -d '\r' | tr '\n' ' ')
+[ "$M3U_SONGS" = "/storage/emulated/0/Music/ShuffleTest/tune01.mp3 /storage/emulated/0/Music/ShuffleTest/tune02.mp3 /storage/emulated/0/Music/ShuffleTest/tune03.mp3 " ] \
+  || fail "the .m3u file doesn't list the playlist's song files in order: $M3U_SONGS"
+adb shell "cat '$BK/Playlists/Liked songs.m3u'" | grep -q "Smoke Song 1" || fail "Liked songs weren't saved as a .m3u file"
+adb shell "cat '$BK/Isaialai backup.json'" > "$OUT/backup.json" 2>/dev/null || fail "there's no 'Isaialai backup.json' in Download/Isaialai"
+python3 - "$OUT/backup.json" <<'PY' || fail "the backup file doesn't have the playlist, liked songs and play counts"
+import json, sys
+b = json.load(open(sys.argv[1]))
+songs = b["songs"]
+lists = {p["name"]: [songs[i]["title"] for i in p["songs"]] for p in b["playlists"]}
+print("playlists in the backup:", lists)
+assert lists["Order Test"] == ["Tune 01", "Tune 02", "Tune 03"], lists
+assert "Smoke Song 1" in [songs[i]["title"] for i in b["liked"]]
+assert any(p["count"] > 0 for p in b["plays"])
+assert "effects" in b["settings"] and "ui" in b["settings"]
+PY
+echo "PASS: playlists are kept as .m3u files, and everything in a backup file, in Download/Isaialai"
+
+titles_in() { # titles_in <dump> <title>...: which of the titles are on screen, in screen order
+  python3 - "$OUT/$1.xml" "${@:2}" <<'PY'
+import sys, xml.etree.ElementTree as ET
+want, seen = sys.argv[2:], []
+for n in ET.parse(sys.argv[1]).iter("node"):
+    t = n.get("text") or ""
+    if t in want and t not in seen:
+        seen.append(t)
+print(" ".join(seen))
+PY
+}
+fresh_start() { # restart the app on Home
+  adb shell am force-stop "$PKG"
+  adb shell am start -W -n "$PKG/.MainActivity" > /dev/null
+  sleep 6
+}
+go_library() {
+  dump go-lib
+  tap go-lib "Library" exact
+  sleep 2
+}
+
+echo "--- Importing a playlist file made by another app"
+# Different path styles, an internet stream (skipped), a moved file found by its tags, and a
+# song that isn't on the phone.
+printf '#EXTM3U\r\n#EXTINF:60,Shuffle Band - Tune 05\r\n/storage/emulated/0/Music/ShuffleTest/tune05.mp3\r\n#EXTINF:60,Shuffle Band - Tune 07\r\n..\\Music\\ShuffleTest\\tune07.mp3\r\n#EXTINF:-1,Some Radio\r\nhttp://radio.example/stream\r\n#EXTINF:60,CI Band - Smoke Song 3\r\nC:\\Users\\me\\Music\\old\\renamed.mp3\r\n#EXTINF:200,Nobody - Not On This Phone\r\n/storage/emulated/0/Music/nowhere.mp3\r\n' > "$OUT/Road Trip.m3u"
+adb push "$OUT/Road Trip.m3u" "/sdcard/Download/Road Trip.m3u" > /dev/null
+fresh_start
+go_library
+open_settings
+tap_clear "Import a playlist file (.m3u)"
+sleep 4
+dump file-picker
+if ! python3 "$HERE/find_text.py" "$OUT/file-picker.xml" "Road Trip.m3u" > /dev/null 2>&1; then
+  # The picker opened somewhere else (Recent files): go to Downloads.
+  tap file-picker "Show roots"
+  sleep 2
+  dump file-roots
+  tap file-roots "Downloads"
+  sleep 2
+  dump file-picker
+fi
+shot 50-import-picker
+tap file-picker "Road Trip.m3u"
+sleep 3
+dump import-ask
+shot 51-import-ask
+grep -q "Import playlists?" "$OUT/import-ask.xml" || fail "picking a .m3u file didn't offer to import it"
+grep -q "Road Trip" "$OUT/import-ask.xml" || fail "the import dialog doesn't name the playlist"
+grep -q "1 song isn&apos;t on this phone\|1 song isn't on this phone" "$OUT/import-ask.xml" || fail "the import dialog doesn't say a song is missing"
+tap import-ask "Import" exact
+sleep 3
+adb shell input keyevent KEYCODE_BACK # Settings -> Library
+sleep 2
+chip "Playlists"
+sleep 2
+on_screen "Road Trip"
+tap on-screen "Road Trip"
+sleep 3
+dump road-trip
+shot 52-imported-playlist
+ROAD=$(titles_in road-trip "Tune 05" "Tune 07" "Smoke Song 3")
+echo "imported playlist: $ROAD"
+[ "$ROAD" = "Tune 05 Tune 07 Smoke Song 3" ] || fail "the imported playlist doesn't have the right songs in order"
+echo "PASS: a .m3u playlist from another app can be imported (paths in any style, missing songs reported)"
+
+echo "--- Restoring after reinstalling (or on a new phone)"
+for _ in $(seq 1 15); do adb shell "ls '$BK/Playlists/Road Trip.m3u'" > /dev/null 2>&1 && break; sleep 2; done
+adb shell "ls '$BK/Playlists/Road Trip.m3u'" > /dev/null 2>&1 || fail "the imported playlist wasn't added to the backup"
+adb shell pm clear "$PKG" # what uninstalling does to the app's own data
+adb shell pm grant "$PKG" android.permission.READ_MEDIA_AUDIO
+adb shell am start -W -n "$PKG/.MainActivity" > /dev/null
+sleep 8
+go_library
+chip "Playlists"
+sleep 2
+dump wiped
+grep -q 'text="Order Test"' "$OUT/wiped.xml" && fail "the app's data wasn't cleared"
+open_settings
+tap_clear "Restore from backup"
+sleep 2
+dump restore-explain
+tap restore-explain "Choose folder"
+sleep 4
+dump restore-picker
+shot 53-restore-picker
+python3 "$HERE/find_text.py" "$OUT/restore-picker.xml" "Use this folder" > /dev/null 2>&1 || { tap restore-picker "Isaialai"; sleep 2; dump restore-picker; }
+tap restore-picker "Use this folder"
+sleep 2
+dump restore-allow
+tap restore-allow "Allow"
+sleep 5
+dump restore-ask
+shot 54-restore-ask
+grep -q "Restore this backup?" "$OUT/restore-ask.xml" || fail "picking the Isaialai folder didn't offer to restore the backup"
+grep -q "[0-9] playlists (" "$OUT/restore-ask.xml" || fail "the restore dialog doesn't list the playlists"
+grep -q "liked song" "$OUT/restore-ask.xml" || fail "the restore dialog doesn't mention liked songs"
+tap restore-ask "Restore" exact
+sleep 4
+adb shell input keyevent KEYCODE_BACK # Settings -> Library
+sleep 2
+chip "Playlists"
+sleep 2
+on_screen "Order Test"
+tap on-screen "Order Test"
+sleep 3
+scroll_down
+dump restored-order
+shot 55-restored-playlist
+echo "restored playlist: $(playlist_order restored-order)"
+[ "$(playlist_order restored-order)" = "Tune 01 Tune 02 Tune 03" ] || fail "the restored playlist doesn't have its songs in order"
+adb shell input keyevent KEYCODE_BACK
+sleep 2
+on_screen "Road Trip"
+on_screen "Liked songs"
+tap on-screen "Liked songs"
+sleep 3
+dump restored-liked
+grep -q "Smoke Song 1" "$OUT/restored-liked.xml" || fail "liked songs weren't restored"
+# Backups now carry on in the restored folder: no "(1)" copies next to the old files.
+sleep 8
+adb shell "ls '$BK' '$BK/Playlists'" > "$OUT/backup-files.txt"
+cat "$OUT/backup-files.txt"
+grep -q "(1)\|(2)" "$OUT/backup-files.txt" && fail "restoring left duplicate backup files"
+echo "PASS: after reinstalling, playlists, liked songs and the rest come back from the Isaialai folder"
+
 echo "--- Android Auto"
 # Android prints the service either as "pkg/.PlaybackService" or "name=pkg.PlaybackService".
 adb shell cmd package query-services -a androidx.media3.session.MediaLibraryService > "$OUT/library-services.txt"

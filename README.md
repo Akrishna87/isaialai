@@ -106,6 +106,35 @@ A one-line-per-feature list, ready to share, is in [FEATURES.md](FEATURES.md).
     seconds from eight places across it) and remembered. Turning up uses
     Android's loudness enhancer, which keeps loud parts from distorting.
     Settings shows how much the current song was changed.
+  - **Backup & restore**: see below.
+- **Backup, and moving to a new phone** (Settings → Backup & restore). No
+  internet or account involved; it's all files on your phone:
+  - **Automatic backup** (on unless you turn it off) keeps a folder called
+    `Isaialai` in **Download**, updated a few seconds after anything changes:
+    - `Isaialai backup.json`: your playlists, liked songs, play counts and
+      history, song edits and settings (theme, equaliser, crossfade, volume
+      boost…), in one readable file.
+    - `Playlists/…m3u`: each playlist (and Liked songs) as a standard .m3u
+      playlist file, which other music apps such as VLC or Poweramp can open
+      too.
+    Songs are written by where the file is and what it's called (path, title,
+    artist, length), not by the phone's internal number for them, so they
+    can be found again on another phone.
+  - **New phone, or reinstalling**: copy the `Isaialai` folder (and your
+    music) to the new phone with any file manager, a USB cable or Nearby
+    Share. Install Isaialai, then Settings → **Restore from backup** →
+    choose the `Isaialai` folder → **Use this folder** → **Allow**. You see
+    what's in the backup and how many songs aren't on the phone, before
+    anything changes. Restoring only adds: nothing on the phone is deleted,
+    and restoring again later (after copying more music) fills in the rest.
+    Backups then carry on in that same folder.
+  - **Import a playlist file (.m3u)**: add a playlist made by another app,
+    or one sent to you. Songs are found by their path (in any style: phone,
+    memory card, even a computer's `C:\Music\…`), then by file name, then by
+    title and artist. You can also choose a folder of .m3u files under
+    Restore from backup.
+  - **Save as playlist file**: the ⤓ button on any playlist (or Liked songs)
+    saves it as a .m3u file wherever you choose, e.g. to send on WhatsApp.
 - **Movies, even for downloaded songs**: many downloaded songs have no album
   saved in them, and Android then calls their album after the folder
   ("Download"). Isaialai doesn't group those into a made-up album. It reads
@@ -196,7 +225,9 @@ Requires Android 8.0 or newer.
 - Songs come from Android's MediaStore (`MusicRepository` in `Library.kt`), so
   the app reads files in place; it only needs the "Music and audio"
   permission.
-- Playlists and the saved queue are stored in the app's SharedPreferences.
+- Playlists and the saved queue are stored in the app's SharedPreferences,
+  and copied to `Download/Isaialai` as a backup (`Backup.kt`, `BackupStorage.kt`,
+  `Restore.kt`).
 
 | File | What's in it |
 | --- | --- |

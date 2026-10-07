@@ -30,6 +30,9 @@
 ⏯️ Continue where you left off, with a Continue listening row on Home.
 🎬 Downloaded songs grouped by movie, not lumped into one "Download" album.
 🧹 Duplicate finder to clean up songs saved twice.
+💾 Automatic backup of playlists, likes, play counts and settings to a folder in Download, with no internet.
+📲 Move to a new phone by copying that folder with any file manager, then tap Restore.
+📄 Playlists saved as .m3u files that other music apps can open; import .m3u playlists from other apps.
 🛡️ Private and secure: no internet access, and updates signed with the app's own key.
 
 ⬇️ Download: https://github.com/Akrishna87/isaialai/releases/download/music-player-latest/Isaialai.apk

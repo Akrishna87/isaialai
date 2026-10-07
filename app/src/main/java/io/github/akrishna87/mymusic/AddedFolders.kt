@@ -14,15 +14,18 @@ import java.io.File
  * folders containing a ".nomedia" file (Telegram, many downloader apps).
  */
 object AddedFolders {
-    private const val EXTERNAL_STORAGE = "com.android.externalstorage.documents"
+    const val EXTERNAL_STORAGE = "com.android.externalstorage.documents"
 
     /** Where the folder picker opens: the phone's Music folder. */
     val pickerStart: Uri = DocumentsContract.buildDocumentUri(EXTERNAL_STORAGE, "primary:Music")
 
-    fun list(context: Context): List<Uri> =
-        context.contentResolver.persistedUriPermissions
-            .filter { it.isReadPermission && DocumentsContract.isTreeUri(it.uri) }
+    fun list(context: Context): List<Uri> {
+        // The backup folder (if you restored from one) is kept for writing backups, not for music.
+        val backup = BackupStorage.tree(context)
+        return context.contentResolver.persistedUriPermissions
+            .filter { it.isReadPermission && DocumentsContract.isTreeUri(it.uri) && it.uri != backup }
             .map { it.uri }
+    }
 
     fun add(context: Context, tree: Uri) {
         context.contentResolver.takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION)
