@@ -725,6 +725,11 @@ for i in 1 2 3 4 5; do
   sleep 3
   dump settings-on
   grep -q "turned up\|turned down\|already at the right level" "$OUT/settings-on.xml" && break
+  # The emulator sometimes drops a tap; if the switch didn't move, tap it again (once).
+  if [ "$i" = 1 ] && grep -q 'content-desc="Even volume"[^>]*checked="false"' "$OUT/settings-on.xml"; then
+    echo "(the tap on Even volume didn't register; tapping again)"
+    tap_clear "Even volume"
+  fi
 done
 grep -q "turned up\|turned down\|already at the right level" "$OUT/settings-on.xml" \
   || fail "the Even volume switch didn't turn on (no level shown for the song playing; switch: $(grep -o 'content-desc="Even volume"[^>]*checked="[a-z]*"' "$OUT/settings-on.xml" | grep -o 'checked="[a-z]*"'))"
