@@ -62,6 +62,8 @@ fun SettingsScreen(vm: MusicViewModel) {
             item { SettingsHeading("Tools") }
             item { LinkRow(Icons.Rounded.Tune, "Equalizer", "Presets, bands and bass boost") { vm.showEqualizer = true } }
             item { LinkRow(Icons.Rounded.ContentCopy, "Find duplicate songs", "Songs saved more than once") { vm.open(Screen.Duplicates) } }
+            item { SettingsHeading("App updates") }
+            item { UpdateCard() }
         }
     }
 }

@@ -4,8 +4,16 @@ Results of a code review of Isaialai and what was changed.
 
 ## What was already fine
 
-- **No internet access.** The APK has no `INTERNET` permission, so it can't
-  send your music, play history or anything else off the phone.
+- **Online only when you ask.** The APK has the `INTERNET` permission for one
+  thing: **Settings → App updates → Check for updates**. That button fetches a
+  small `version.json` from this repo's GitHub release, and, if you then tap
+  *Download and install*, the new APK. Nothing else in the app uses the network,
+  nothing runs in the background, and nothing from your phone is sent except the
+  request itself (github.com sees your IP address, as with any download).
+  The download is checked against the SHA-256 in `version.json`, only an APK for
+  this app can be installed through it, and Android refuses it unless it is signed
+  with the same key. Android also asks you to confirm every update, and
+  `REQUEST_INSTALL_PACKAGES` stays off until you allow it.
   (`ACCESS_NETWORK_STATE` comes in from the Media3 library and only reads
   whether a network is connected.)
 - **Not debuggable**, and release builds are minified.

@@ -121,6 +121,7 @@ jobs:
           script: |
             bash ci/update-test.sh old-key/old-key-only.apk apk/Isaialai.apk
             bash ci/smoke-test.sh apk/Isaialai.apk songs smoke-out
+            bash ci/updater-test.sh apk/Isaialai.apk smoke-out/updater
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
@@ -129,6 +130,9 @@ jobs:
 
   publish:
     needs: [build, smoke-test]
+    # Only builds of main reach friends: a test build on another branch must not replace the
+    # "music-player-latest" release.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -141,6 +145,21 @@ jobs:
         with:
           name: smoke-test-screens
           path: out/screens
+      - name: Describe the build for the in-app updater
+        run: |
+          # The app's "Check for updates" reads this file; versionCode matches the build number
+          # that was passed to Gradle as VERSION_CODE.
+          cat > out/version.json <<EOF
+          {
+            "versionCode": ${{ github.run_number }},
+            "versionName": "1.0.${{ github.run_number }}",
+            "apk": "Isaialai.apk",
+            "sha256": "$(sha256sum out/Isaialai.apk | cut -d' ' -f1)",
+            "size": $(stat -c %s out/Isaialai.apk)
+          }
+          EOF
+          cat out/version.json
+          python3 -c "import json; json.load(open('out/version.json'))"
       - name: Publish the APK as the "music-player-latest" release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -149,7 +168,7 @@ jobs:
           gh release delete music-player-latest --cleanup-tag --yes || true
           # Keep the old file name too, so links shared before the rename still work.
           cp out/Isaialai.apk out/MyMusic.apk
-          gh release create music-player-latest out/Isaialai.apk out/MyMusic.apk out/screens/*.png \
+          gh release create music-player-latest out/Isaialai.apk out/MyMusic.apk out/version.json out/screens/*.png \
             --target "$GITHUB_SHA" \
             --prerelease \
             --title "Isaialai for Android (build ${{ github.run_number }})" \
