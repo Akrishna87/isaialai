@@ -15,6 +15,9 @@ mkdir -p "$OUT"
 fail() {
   echo "UPDATER TEST FAILED: $*"
   adb exec-out screencap -p > "$OUT/failure.png" || true
+  if adb shell uiautomator dump /sdcard/ui.xml > /dev/null 2>&1 && adb pull /sdcard/ui.xml "$OUT/failure.xml" > /dev/null 2>&1; then
+    echo "On screen:"; grep -o 'text="[^"]\+"' "$OUT/failure.xml" | head -40 || true
+  fi
   adb logcat -d > "$OUT/logcat.txt" || true
   echo "App log (errors and warnings):"
   grep -E "AndroidRuntime|FATAL|AppUpdater|mymusic" "$OUT/logcat.txt" | grep -E " [EWFI] " | tail -40 || true
@@ -45,19 +48,22 @@ sleep 6
 dump home
 tap home "Settings"
 sleep 2
+dump settings
+grep -q 'text="Appearance"' "$OUT/settings.xml" || fail "tapping Settings on Home didn't open the Settings screen"
 
 size=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1)
 W=${size%x*}
 H=${size#*x}
 found=no
-for _ in 1 2 3 4 5 6 7 8 9 10; do
+for _ in $(seq 1 12); do
   dump settings
-  if xy=$(python3 "$HERE/find_text.py" "$OUT/settings.xml" "Check for updates" exact 2> /dev/null); then
-    read -r _ y <<<"$xy"
-    # Far enough up the screen that nothing (a mini player, the gesture bar) covers it.
-    if [ "$y" -lt $((H * 80 / 100)) ]; then found=yes; break; fi
+  if b=$(python3 "$HERE/find_text.py" "$OUT/settings.xml" "Check for updates" bounds 2> /dev/null); then
+    read -r _ _ _ y2 <<<"$b"
+    # Whole button on screen, with room above the gesture bar.
+    if [ "$y2" -lt $((H * 96 / 100)) ]; then found=yes; break; fi
   fi
-  adb shell input swipe $((W / 2)) $((H * 3 / 4)) $((W / 2)) $((H / 4)) 300
+  # A third of the screen, slowly, so the list doesn't fling past the button.
+  adb shell input swipe $((W / 2)) $((H * 2 / 3)) $((W / 2)) $((H / 3)) 600
   sleep 1
 done
 [ "$found" = yes ] || fail "Settings has no 'Check for updates' button"
