@@ -52,6 +52,12 @@ scroll_down() { # swipe up on the middle of the screen
   adb shell input swipe $((w / 2)) $((h * 3 / 4)) $((w / 2)) $((h / 4)) 300
   sleep 1
 }
+scroll_step() { # drag the list up by a third of the screen and let go without a fling, so no row is skipped
+  local size w h x
+  size=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); w=${size%x*}; h=${size#*x}; x=$((w / 2))
+  adb shell "input motionevent DOWN $x $((h * 65 / 100)); input motionevent MOVE $x $((h * 55 / 100)); input motionevent MOVE $x $((h * 45 / 100)); input motionevent MOVE $x $((h * 35 / 100)); sleep 0.4; input motionevent UP $x $((h * 35 / 100))"
+  sleep 1
+}
 playing() { session; grep -Eq "\{state=(PLAYING|3)" "$OUT/session.txt"; }
 menu_item() { # menu_item <dump> <song> <item>: open a song's ⋮ menu and tap an item, scrolling the menu if needed
   local i xy
@@ -669,9 +675,16 @@ sleep 1
 dump playlists2
 tap playlists2 "Never played"
 sleep 2
-dump never-played
-grep -q 'text="Twin Song"' "$OUT/never-played.xml" || fail "Never played doesn't list a song that was never played"
-grep -q 'text="Smoke Song 1"' "$OUT/never-played.xml" && fail "Never played lists a song that was played"
+# The list is longer than the screen and which songs are in it varies (the shuffle tests play random
+# songs), so a row can be cut off at the edge. Look through it a third of a screen at a time.
+found_twin=no
+for _ in 1 2 3 4 5 6; do
+  dump never-played
+  grep -q 'text="Smoke Song 1"' "$OUT/never-played.xml" && fail "Never played lists a song that was played"
+  if grep -q 'text="Twin Song"' "$OUT/never-played.xml"; then found_twin=yes; break; fi
+  scroll_step
+done
+[ "$found_twin" = yes ] || fail "Never played doesn't list a song that was never played"
 echo "PASS: smart playlists fill themselves"
 adb shell input keyevent KEYCODE_BACK
 sleep 1
@@ -752,10 +765,12 @@ dump songs-loud
 tap songs-loud "Loud Song"
 sleep 6 # long enough to measure it
 open_settings
-for _ in 1 2 3; do
-  scroll_down # the level line is under Even volume, near the bottom
+# The level line is under Even volume. Drag a third of a screen at a time, without a fling: the
+# Settings list is long, and a fling can carry the line past the screen between two dumps.
+for _ in 1 2 3 4 5 6 7 8; do
   dump settings-loud
   grep -q "Now playing" "$OUT/settings-loud.xml" && break
+  scroll_step
 done
 shot 23-even-volume
 echo "Even volume line: $(grep -o 'Now playing[^"]*' "$OUT/settings-loud.xml" || echo '(none)')"
@@ -1034,12 +1049,6 @@ adb shell input keyevent KEYCODE_MEDIA_PLAY
 sleep 2
 
 echo "--- Reorder songs in a playlist"
-scroll_step() { # drag the list up by a third of the screen and let go without a fling, so no row is skipped
-  local size w h x
-  size=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); w=${size%x*}; h=${size#*x}; x=$((w / 2))
-  adb shell "input motionevent DOWN $x $((h * 65 / 100)); input motionevent MOVE $x $((h * 55 / 100)); input motionevent MOVE $x $((h * 45 / 100)); input motionevent MOVE $x $((h * 35 / 100)); sleep 0.4; input motionevent UP $x $((h * 35 / 100))"
-  sleep 1
-}
 on_screen() { # on_screen <text>: scroll down until <text> is on screen; if it isn't found, start again from the top
   local pass i size w h
   for pass in 1 2; do
