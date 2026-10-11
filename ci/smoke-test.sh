@@ -669,7 +669,12 @@ sleep 1
 dump playlists2
 tap playlists2 "Never played"
 sleep 2
-dump never-played
+# The list animates when the song playing now drops out of it; read it again until it settles.
+for _ in 1 2 3; do
+  dump never-played
+  grep -q 'text="Twin Song"' "$OUT/never-played.xml" && break
+  sleep 2
+done
 grep -q 'text="Twin Song"' "$OUT/never-played.xml" || fail "Never played doesn't list a song that was never played"
 grep -q 'text="Smoke Song 1"' "$OUT/never-played.xml" && fail "Never played lists a song that was played"
 echo "PASS: smart playlists fill themselves"
