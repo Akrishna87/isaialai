@@ -1438,8 +1438,24 @@ shot 63-accent-blue
 dump accent-after
 tap accent-after "Accent Coral"
 sleep 1
-tap_clear "Your artists" # the row's switch
+# Tap the row's own label (the smallest element called "Your artists"), above the mini player.
+for i in 1 2 3 4 5 6; do
+  dump home-rows
+  python3 - "$OUT/home-rows.xml" <<'PY'
+import sys, xml.etree.ElementTree as ET
+for n in ET.parse(sys.argv[1]).iter("node"):
+    if "Your artists" in ((n.get("text") or "") + (n.get("content-desc") or "")):
+        print("  'Your artists' element:", n.get("class"), repr(n.get("text")), repr(n.get("content-desc")), n.get("bounds"), "checkable", n.get("checkable"))
+PY
+  if xy=$(python3 "$HERE/find_text.py" "$OUT/home-rows.xml" "Your artists" smallest 2> /dev/null); then
+    read -r _ ty <<<"$xy"
+    if [ "$ty" -lt $((H * 70 / 100)) ]; then adb shell input tap $xy; break; fi
+  fi
+  scroll_step
+done
 sleep 1
+dump home-rows-after
+[ "$(switch_state home-rows-after "Your artists")" = off ] || echo "(note: couldn't read the 'Your artists' switch: $(switch_state home-rows-after "Your artists"))"
 for _ in 1 2 3 4 5 6; do
   tap_clear "Move Your recap up"
   sleep 1
