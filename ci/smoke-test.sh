@@ -1443,28 +1443,31 @@ shot 63-accent-blue
 dump accent-after
 tap accent-after "Accent Coral"
 sleep 1
-# Tap the row's own label (the smallest element called "Your artists"), above the mini player.
-for i in 1 2 3 4 5 6; do
+# Bring "Open the app on" (the top of the Home screen settings) near the top of the screen.
+on_screen "Open the app on"
+for _ in 1 2 3; do
   dump home-rows
-  python3 - "$OUT/home-rows.xml" <<'PY'
-import sys, xml.etree.ElementTree as ET
-for n in ET.parse(sys.argv[1]).iter("node"):
-    if "Your artists" in ((n.get("text") or "") + (n.get("content-desc") or "")):
-        print("  'Your artists' element:", n.get("class"), repr(n.get("text")), repr(n.get("content-desc")), n.get("bounds"), "checkable", n.get("checkable"))
-PY
-  if xy=$(python3 "$HERE/find_text.py" "$OUT/home-rows.xml" "Your artists" smallest 2> /dev/null); then
-    read -r _ ty <<<"$xy"
-    if [ "$ty" -lt $((H * 70 / 100)) ]; then adb shell input tap $xy; break; fi
-  fi
-  scroll_step
-done
-sleep 1
-dump home-rows-after
-[ "$(switch_state home-rows-after "Your artists")" = off ] || echo "(note: couldn't read the 'Your artists' switch: $(switch_state home-rows-after "Your artists"))"
-for _ in 1 2 3 4 5 6; do
-  tap_clear "Move Your recap up"
+  read -r _ oy < <(python3 "$HERE/find_text.py" "$OUT/home-rows.xml" "Open the app on" exact) || break
+  [ "$oy" -lt $((H * 16 / 100)) ] && break
+  # Drag the list up by exactly the distance to bring it to 12% from the top, without a fling.
+  d=$((oy - H * 12 / 100)); [ "$d" -gt $((H * 50 / 100)) ] && d=$((H * 50 / 100))
+  adb shell "input motionevent DOWN $((W / 2)) $((H * 65 / 100)); input motionevent MOVE $((W / 2)) $((H * 65 / 100 - d / 2)); input motionevent MOVE $((W / 2)) $((H * 65 / 100 - d)); sleep 0.4; input motionevent UP $((W / 2)) $((H * 65 / 100 - d))"
   sleep 1
 done
+shot 65-home-rows-settings
+tap_here() { # tap_here <text>: tap the smallest element called <text> on the current screen, if it's above the mini player
+  local xy ty
+  dump here
+  xy=$(python3 "$HERE/find_text.py" "$OUT/here.xml" "$1" smallest) || fail "'$1' isn't on screen"
+  read -r _ ty <<<"$xy"
+  [ "$ty" -lt $((H * 72 / 100)) ] || fail "'$1' is under the mini player"
+  adb shell input tap $xy
+  sleep 1
+}
+tap_here "Your artists" # the row's switch
+dump home-rows-after
+[ "$(switch_state home-rows-after "Your artists")" = off ] || fail "the 'Your artists' switch didn't turn off"
+for _ in 1 2 3 4; do tap_here "Move Your recap up"; done
 start_chip "Library"
 sleep 1
 fresh_start
