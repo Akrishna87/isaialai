@@ -1402,7 +1402,10 @@ echo "PASS: the recap counts what you listen to, with top songs, and Home shows 
 
 start_chip() { # start_chip <Home|Search|Library>: tap that chip under "Open the app on" (not the tab bar's)
   local i xy
-  for i in 1 2 3 4 5 6; do
+  # From the top of Settings, scroll down to the chips.
+  for _ in 1 2 3 4 5; do adb shell input swipe $((W / 2)) $((H * 30 / 100)) $((W / 2)) $((H * 80 / 100)) 150; done
+  sleep 1
+  for i in 1 2 3 4 5 6 7 8 9 10; do
     dump start-chip
     if xy=$(python3 - "$OUT/start-chip.xml" "$1" "$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1)" <<'PY'
 import re, sys, xml.etree.ElementTree as ET
