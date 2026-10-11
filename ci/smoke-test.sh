@@ -1455,14 +1455,17 @@ for _ in 1 2 3; do
   sleep 1
 done
 shot 65-home-rows-settings
-tap_here() { # tap_here <text>: tap the smallest element called <text> on the current screen, if it's above the mini player
-  local xy ty
-  dump here
-  xy=$(python3 "$HERE/find_text.py" "$OUT/here.xml" "$1" smallest) || fail "'$1' isn't on screen"
-  read -r _ ty <<<"$xy"
-  [ "$ty" -lt $((H * 72 / 100)) ] || fail "'$1' is under the mini player"
-  adb shell input tap $xy
-  sleep 1
+tap_here() { # tap_here <text>: tap the smallest element called <text> on screen, nudging it up from under the mini player
+  local xy ty i
+  for i in 1 2 3; do
+    dump here
+    xy=$(python3 "$HERE/find_text.py" "$OUT/here.xml" "$1" smallest) || fail "'$1' isn't on screen"
+    read -r _ ty <<<"$xy"
+    if [ "$ty" -lt $((H * 72 / 100)) ]; then adb shell input tap $xy; sleep 1; return 0; fi
+    adb shell "input motionevent DOWN $((W / 2)) $((H * 60 / 100)); input motionevent MOVE $((W / 2)) $((H * 45 / 100)); input motionevent MOVE $((W / 2)) $((H * 35 / 100)); sleep 0.4; input motionevent UP $((W / 2)) $((H * 35 / 100))"
+    sleep 1
+  done
+  fail "'$1' stays under the mini player"
 }
 tap_here "Your artists" # the row's switch
 dump home-rows-after
