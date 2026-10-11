@@ -180,7 +180,6 @@ private fun HomeLayoutCard(vm: MusicViewModel) {
                         .toggleable(value = shown, role = Role.Switch) {
                             ThemeSettings.setHomeSections(context, order, if (it) hidden - section else hidden + section)
                         }
-                        .semantics { contentDescription = "Show ${section.label}" }
                         .padding(vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -310,8 +309,9 @@ fun SwitchRow(title: String, subtitle: String, checked: Boolean, onChange: (Bool
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
+            // The row reads out its title and description; no separate label (it would get the
+            // wrong bounds and be read twice).
             .toggleable(value = checked, role = Role.Switch, onValueChange = onChange)
-            .semantics { contentDescription = title }
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

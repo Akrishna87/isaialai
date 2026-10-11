@@ -1428,8 +1428,17 @@ fresh_start
 go_library
 open_settings
 dump accent-before
-read -r X1 Y1 X2 Y2 < <(python3 "$HERE/find_text.py" "$OUT/accent-before.xml" "Player on the lock screen" exact-bounds) \
-  || fail "couldn't find the lock-screen player switch"
+# The switch row is the checkable element around the "Player on the lock screen" title.
+read -r X1 Y1 X2 Y2 < <(python3 - "$OUT/accent-before.xml" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+nodes = list(ET.parse(sys.argv[1]).iter("node"))
+box = lambda n: [int(v) for v in re.findall(r"\d+", n.get("bounds", "[0,0][0,0]"))]
+label = next(n for n in nodes if n.get("text") == "Player on the lock screen")
+x1, y1, x2, y2 = box(label); cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+row = next(n for n in nodes if n.get("checkable") == "true" and box(n)[0] <= cx <= box(n)[2] and box(n)[1] <= cy <= box(n)[3])
+print(*box(row))
+PY
+) || fail "couldn't find the lock-screen player switch"
 DENS=$(adb shell wm density | grep -o '[0-9]*' | tail -1)
 SX=$((X2 - 42 * DENS / 160)); SY=$(((Y1 + Y2) / 2))
 read -r R0 G0 B0 < <(adb exec-out screencap | python3 "$HERE/pixel.py" $SX $SY)
