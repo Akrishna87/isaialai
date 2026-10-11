@@ -715,7 +715,7 @@ open_settings() {
 open_settings
 dump settings
 shot 22-settings
-tap settings "5 s" # crossfade
+tap_clear "5 s" # crossfade
 sleep 1
 dump settings-xfade
 grep -q 'Crossfade: 5 s' "$OUT/settings-xfade.xml" || fail "choosing a 5 s crossfade didn't stick"

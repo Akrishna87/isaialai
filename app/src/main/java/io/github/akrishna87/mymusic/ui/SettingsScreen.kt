@@ -58,8 +58,6 @@ fun SettingsScreen(vm: MusicViewModel) {
         ) {
             item { SettingsHeading("Appearance") }
             item { AppearanceCard() }
-            item { SettingsHeading("Home screen") }
-            item { HomeLayoutCard(vm) }
             item { SettingsHeading("Playback") }
             item { SettingsCard { SwitchRow(
                 "Autoplay",
@@ -72,6 +70,8 @@ fun SettingsScreen(vm: MusicViewModel) {
             item { ResumeCard(vm) }
             item { EvenVolumeCard(vm) }
             item { SettingsCard { BoostControls(vm) } }
+            item { SettingsHeading("Home screen") }
+            item { HomeLayoutCard(vm) }
             item { SettingsHeading("Backup & restore") }
             item { BackupCard(vm) }
             item { SettingsHeading("Tools") }
