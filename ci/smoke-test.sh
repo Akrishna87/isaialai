@@ -1395,6 +1395,29 @@ on_screen "See your recap ›"
 grep -q "so far" "$OUT/on-screen.xml" || fail "Home's recap card doesn't show this month"
 echo "PASS: the recap counts what you listen to, with top songs, and Home shows this month"
 
+start_chip() { # start_chip <Home|Search|Library>: tap that chip under "Open the app on" (not the tab bar's)
+  local i xy
+  for i in 1 2 3 4 5 6; do
+    dump start-chip
+    if xy=$(python3 - "$OUT/start-chip.xml" "$1" "$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1)" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+limit = int(sys.argv[3].split("x")[1]) * 70 // 100 # above the mini player
+seen = False
+for n in ET.parse(sys.argv[1]).iter("node"):
+    t = n.get("text") or ""
+    if t == "Open the app on": seen = True
+    elif seen and t == sys.argv[2]:
+        x1, y1, x2, y2 = map(int, re.findall(r"\d+", n.get("bounds")))
+        if (y1 + y2) // 2 < limit: print((x1 + x2) // 2, (y1 + y2) // 2); sys.exit()
+        break
+sys.exit(1)
+PY
+    ); then adb shell input tap $xy; return 0; fi
+    scroll_step
+  done
+  fail "couldn't find the '$1' chip under 'Open the app on'"
+}
+
 echo "--- App customisation: accent colour, Home rows, start tab"
 fresh_start
 go_library
@@ -1415,13 +1438,13 @@ shot 63-accent-blue
 dump accent-after
 tap accent-after "Accent Coral"
 sleep 1
-tap_clear "Show Your artists"
+tap_clear "Your artists" # the row's switch
 sleep 1
 for _ in 1 2 3 4 5 6; do
   tap_clear "Move Your recap up"
   sleep 1
 done
-tap_clear "Open on Library"
+start_chip "Library"
 sleep 1
 fresh_start
 dump start-library
@@ -1440,7 +1463,7 @@ go_library
 open_settings
 tap_clear "Reset Home"
 sleep 1
-tap_clear "Open on Home"
+start_chip "Home"
 sleep 1
 echo "PASS: accent colour, Home's rows (hide, reorder) and the start tab can be changed"
 
