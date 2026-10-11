@@ -43,6 +43,9 @@ class CarLibrary(private val context: Context) {
         return Snapshot(songs, songs.associateBy { it.id }, System.currentTimeMillis()).also { snapshot = it }
     }
 
+    /** Every song on the phone (with your edits), read at most once a minute. */
+    fun songs(): List<Song> = library().songs
+
     val root: MediaItem get() = folder(ROOT, "Isaialai", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
 
     /** The items inside [parentId], or null if there's no such folder. */

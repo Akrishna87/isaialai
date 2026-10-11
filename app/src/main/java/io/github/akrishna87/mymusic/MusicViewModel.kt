@@ -47,6 +47,8 @@ sealed interface Screen {
     data object Settings : Screen
     /** Cut part of a song, to save as a new song or as a ringtone ([ringtone] picks that to start with). */
     data class Cut(val songId: String, val ringtone: Boolean) : Screen
+    /** Your listening: how much, and what most, this month, this year or ever. */
+    data object Recap : Screen
 }
 
 /** Playlists that fill themselves from what you play. */
@@ -88,7 +90,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     // ----- Navigation & UI -----
     val screens = mutableStateListOf<Screen>()
     var showPlayer by mutableStateOf(false)
-    var section by mutableStateOf(Section.HOME); private set
+    var section by mutableStateOf(Section.entries.firstOrNull { it.name == prefs.getString("startSection", null) } ?: Section.HOME); private set
     var libraryChip by mutableStateOf(
         LibraryChip.entries.firstOrNull { it.name == prefs.getString("chipName", null) } ?: LibraryChip.SONGS,
     ); private set
@@ -154,6 +156,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         boostPercent = Effects.boostPercent(p)
         boostAvailable = p.getBoolean(Effects.KEY_BOOST_AVAILABLE, true)
         evenVolume = p.getBoolean(Effects.KEY_EVEN_VOLUME, false)
+        autoplay = p.getBoolean(Effects.KEY_AUTOPLAY, false)
         evenVolumeNow = readEvenVolumeNow()
     }
 
@@ -810,13 +813,16 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
                 plays = counts.mapNotNull { (id, n) -> ref(id)?.let { BackupFile.Play(it, n, last[id] ?: 0L) } },
                 edits = edited.mapNotNull { (id, e) -> ref(id)?.let { it to e } },
                 settings = BackupSettings.snapshot(app),
+                listens = PlayLog.read(app).map { l ->
+                    BackupFile.Heard(l.at, ref(l.songId) ?: SongRef("", l.title, l.artist, l.album), l.ms)
+                },
             )
             if (contents.isEmpty && !force) return@withContext null
             val files = LinkedHashMap<String, String>()
             val sameAs = HashMap<String, String>()
             files[BackupFile.NAME] = BackupFile.write(contents)
             // The time it was made changes every time; only rewrite the file when the rest does.
-            sameAs[BackupFile.NAME] = BackupFile.write(BackupFile.Contents(0, contents.playlists, contents.liked, contents.history, contents.plays, contents.edits, contents.settings))
+            sameAs[BackupFile.NAME] = BackupFile.write(BackupFile.Contents(0, contents.playlists, contents.liked, contents.history, contents.plays, contents.edits, contents.settings, contents.listens))
             val m3u = listOf("Liked songs" to contents.liked).filter { it.second.isNotEmpty() } + contents.playlists
             for ((name, songs) in m3u) {
                 var file = "$PLAYLISTS_DIR/" + M3u.fileName(name)
@@ -882,6 +888,10 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         saveHistory()
         if (plan.edits.isNotEmpty()) publish(rawSongs)
         viewModelScope.launch {
+            if (plan.listens.isNotEmpty()) {
+                withContext(Dispatchers.IO) { PlayLog.addAll(app, plan.listens) }
+                refreshListens()
+            }
             // Keep backing up into the folder restored from, so there's one backup, not two.
             plan.adoptFolder?.let { folder -> backupLock.withLock { withContext(Dispatchers.IO) { backupStorage.adopt(folder) } } }
             backupVersion++
@@ -891,7 +901,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         val what = buildList {
             if (plan.playlists.isNotEmpty()) add(if (plan.playlists.size == 1) "“${plan.playlists[0].first}”" else "${plan.playlists.size} playlists")
             if (plan.liked.isNotEmpty()) add("${plan.liked.size} liked ${if (plan.liked.size == 1) "song" else "songs"}")
-            if (plan.plays.isNotEmpty()) add("play counts")
+            if (plan.plays.isNotEmpty() || plan.listens.isNotEmpty()) add("listening history")
             if (withSettings && plan.settings != null) add("settings")
         }
         val text = if (what.isEmpty()) "Nothing new to restore" else "Restored " + what.joinToString(", ").replace(Regex(", ([^,]*)$"), " and $1")
@@ -922,6 +932,73 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
             }
             messageChannel.trySend(if (ok) "Saved “${p.name}” as a playlist file" else "Couldn't save the playlist file")
         }
+    }
+
+    // ----- Instant mix, similar artists, autoplay -----
+
+    var autoplay by mutableStateOf(effectsPrefs.getBoolean(Effects.KEY_AUTOPLAY, false)); private set
+
+    fun setAutoplayOn(on: Boolean) {
+        autoplay = on
+        effectsPrefs.edit().putBoolean(Effects.KEY_AUTOPLAY, on).apply()
+    }
+
+    private fun listeningSignals() = ListeningSignals(
+        playCounts = HashMap(playCounts),
+        playlists = playlists.items.map { it.songIds },
+        liked = playlists.liked?.songIds?.toSet().orEmpty(),
+        recent = history,
+    )
+
+    /** A queue of songs like [seed], starting with it. */
+    fun instantMix(seed: Song) {
+        val library = songs
+        val signals = listeningSignals()
+        viewModelScope.launch {
+            val mix = withContext(Dispatchers.Default) { Similar(library, signals).mix(listOf(seed), size = 49) }
+            play(listOf(seed) + mix, 0, from = "Instant mix · ${seed.title}")
+        }
+    }
+
+    /** A queue built around [seeds] (an artist's, album's or playlist's songs), including some of them. */
+    fun instantMix(name: String, seeds: List<Song>) {
+        if (seeds.isEmpty()) return
+        val library = songs
+        val signals = listeningSignals()
+        viewModelScope.launch {
+            val mix = withContext(Dispatchers.Default) {
+                Similar(library, signals).mix(seeds.shuffled().take(25), size = 50, includeSeeds = true)
+            }
+            if (mix.isEmpty()) messageChannel.trySend("Not enough songs for a mix yet")
+            else play(mix, 0, from = "$name mix")
+        }
+    }
+
+    /** Artists who go with [artist] (shared movies, music directors, duets, playlists). */
+    suspend fun similarArtists(artist: ArtistGroup): List<ArtistGroup> {
+        val library = songs
+        val signals = listeningSignals()
+        return withContext(Dispatchers.Default) { Similar(library, signals).similarArtists(artist, LibraryGrouping.artists(library)) }
+    }
+
+    // ----- Recap -----
+
+    /** Every listen recorded by the player, oldest first; read when Home or the recap is shown. */
+    var listens by mutableStateOf<List<Listen>>(emptyList()); private set
+
+    fun refreshListens() {
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            listens = withContext(Dispatchers.IO) { PlayLog.read(app) }
+        }
+    }
+
+    /** The tab the app opens on. */
+    var startSection by mutableStateOf(section); private set
+
+    fun setStartSection(s: Section) {
+        startSection = s
+        prefs.edit().putString("startSection", s.name).apply()
     }
 }
 

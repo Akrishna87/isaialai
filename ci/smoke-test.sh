@@ -1261,6 +1261,180 @@ go_library() {
   sleep 2
 }
 
+switch_state() { # switch_state <dump> <label>: "on"/"off" for the switch row labelled <label>
+  python3 - "$OUT/$1.xml" "$2" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+nodes = list(ET.parse(sys.argv[1]).iter("node"))
+box = lambda n: [int(v) for v in re.findall(r"\d+", n.get("bounds", "[0,0][0,0]"))]
+label = next((n for n in nodes if sys.argv[2] in (n.get("text"), n.get("content-desc"))), None)
+if label is None: print("not on screen"); sys.exit()
+x1, y1, x2, y2 = box(label); cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+for n in nodes:
+    a1, b1, a2, b2 = box(n)
+    if n.get("checkable") == "true" and a1 <= cx <= a2 and b1 <= cy <= b2:
+        print("on" if n.get("checked") == "true" else "off"); sys.exit()
+print("unknown")
+PY
+}
+player_set() { # player_set <dump>: in the full player, turn shuffle and repeat off
+  local i
+  for i in 1 2 3; do
+    dump "$1"
+    if grep -q 'content-desc="Shuffle on"' "$OUT/$1.xml"; then tap "$1" "Shuffle on"; sleep 2; continue; fi
+    if grep -q 'content-desc="Repeating all"' "$OUT/$1.xml"; then tap "$1" "Repeating all"; sleep 1; continue; fi
+    if grep -q 'content-desc="Repeating this song"' "$OUT/$1.xml"; then tap "$1" "Repeating this song"; sleep 1; continue; fi
+    return 0
+  done
+}
+
+echo "--- Instant mix"
+fresh_start
+go_library
+chip "Songs"
+sleep 2
+on_screen "More options for Tune 05"
+menu_item on-screen "Tune 05" "Instant mix"
+sleep 5
+playing || fail "Instant mix didn't start playing"
+grep -q "Tune 05" "$OUT/session.txt" || fail "Instant mix didn't start with the song it was made from"
+dump mix-mini
+tap mix-mini "Tune 05" last # open the full player
+sleep 3
+dump mix-player
+grep -q "Instant mix · Tune 05" "$OUT/mix-player.xml" || fail "the player doesn't say it's playing an Instant mix"
+player_set mix-player
+tap mix-player "Show up next"
+sleep 2
+dump mix-queue
+shot 60-instant-mix
+python3 "$HERE/up_next.py" "$OUT/mix-queue.xml" "Tune 05" > "$OUT/mix-queue.txt" || fail "couldn't read Up next"
+echo "Instant mix after Tune 05:"; head -8 "$OUT/mix-queue.txt"
+[ "$(wc -l < "$OUT/mix-queue.txt")" -ge 4 ] || fail "the Instant mix has hardly any songs"
+grep -qx "Tune 05" "$OUT/mix-queue.txt" && fail "the Instant mix plays its own song again"
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+echo "PASS: Instant mix plays a song, then songs like it"
+
+echo "--- Autoplay: similar songs after the last song in the queue"
+fresh_start
+go_library
+open_settings
+tap_clear "Autoplay"
+sleep 1
+dump autoplay-on
+[ "$(switch_state autoplay-on Autoplay)" = on ] || fail "the Autoplay switch didn't turn on"
+adb shell input keyevent KEYCODE_BACK
+sleep 2
+chip "Albums"
+sleep 2
+on_screen "Shuffle Album"
+tap on-screen "Shuffle Album"
+sleep 3
+on_screen "Tune 12"
+tap on-screen "Tune 12" # the album's last song
+sleep 4
+dump autoplay-mini
+tap autoplay-mini "Tune 12" last
+sleep 3
+player_set autoplay-player
+sleep 4 # let Autoplay pick the songs
+tap autoplay-player "Show up next"
+sleep 2
+dump autoplay-queue
+shot 61-autoplay
+python3 "$HERE/up_next.py" "$OUT/autoplay-queue.xml" "Tune 12" > "$OUT/autoplay-queue.txt" || true
+echo "Up next after the album's last song:"; head -8 "$OUT/autoplay-queue.txt"
+grep -q "Nothing after this song" "$OUT/autoplay-queue.xml" && fail "Autoplay didn't add songs after the last one"
+[ "$(wc -l < "$OUT/autoplay-queue.txt")" -ge 4 ] || fail "Autoplay added hardly any songs"
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+echo "PASS: Autoplay keeps the music going after the last song"
+
+echo "--- Recap"
+fresh_start
+go_library
+chip "Songs"
+sleep 2
+on_screen "Tune 01"
+tap on-screen "Tune 01"
+sleep 3
+playing || fail "Tune 01 didn't start"
+sleep 33 # a listen counts after 30 seconds
+adb shell input keyevent KEYCODE_MEDIA_NEXT
+sleep 3
+dump recap-menu
+tap recap-menu "More options"
+sleep 1
+dump recap-menu2
+tap recap-menu2 "Your recap"
+sleep 3
+dump recap
+shot 62-recap
+grep -q "of music" "$OUT/recap.xml" || fail "the recap screen didn't open"
+grep -q "Top songs" "$OUT/recap.xml" || fail "the recap has no top songs after listening"
+grep -q 'text="Tune 01"' "$OUT/recap.xml" || fail "the song just listened to isn't in the recap"
+tap recap "All time"
+sleep 2
+dump recap-all
+grep -q 'text="Tune 01"' "$OUT/recap-all.xml" || fail "All time doesn't include this month's listening"
+adb shell input keyevent KEYCODE_BACK
+sleep 2
+dump recap-home
+tap recap-home "Home" exact
+sleep 3
+on_screen "See your recap ›"
+grep -q "so far" "$OUT/on-screen.xml" || fail "Home's recap card doesn't show this month"
+echo "PASS: the recap counts what you listen to, with top songs, and Home shows this month"
+
+echo "--- App customisation: accent colour, Home rows, start tab"
+fresh_start
+go_library
+open_settings
+dump accent-before
+read -r X1 Y1 X2 Y2 < <(python3 "$HERE/find_text.py" "$OUT/accent-before.xml" "Player on the lock screen" exact-bounds) \
+  || fail "couldn't find the lock-screen player switch"
+DENS=$(adb shell wm density | grep -o '[0-9]*' | tail -1)
+SX=$((X2 - 42 * DENS / 160)); SY=$(((Y1 + Y2) / 2))
+read -r R0 G0 B0 < <(adb exec-out screencap | python3 "$HERE/pixel.py" $SX $SY)
+echo "switch colour with the coral accent: $R0 $G0 $B0"
+tap accent-before "Accent Blue"
+sleep 2
+read -r R1 G1 B1 < <(adb exec-out screencap | python3 "$HERE/pixel.py" $SX $SY)
+echo "switch colour with the blue accent: $R1 $G1 $B1"
+shot 63-accent-blue
+[ "$R0" -gt "$B0" ] && [ "$B1" -gt "$R1" ] || fail "choosing the blue accent didn't change the app's accent colour"
+dump accent-after
+tap accent-after "Accent Coral"
+sleep 1
+tap_clear "Show Your artists"
+sleep 1
+for _ in 1 2 3 4 5 6; do
+  tap_clear "Move Your recap up"
+  sleep 1
+done
+tap_clear "Open on Library"
+sleep 1
+fresh_start
+dump start-library
+grep -q 'text="Your Library"' "$OUT/start-library.xml" || fail "the app didn't open on Library"
+tap start-library "Home" exact
+sleep 3
+dump custom-home
+shot 64-custom-home
+grep -q "See your recap ›" "$OUT/custom-home.xml" || fail "moving Your recap to the top of Home didn't work"
+for _ in 1 2 3 4 5; do
+  grep -q 'text="Your artists"' "$OUT/custom-home.xml" && fail "the hidden 'Your artists' row is still on Home"
+  scroll_down
+  dump custom-home
+done
+go_library
+open_settings
+tap_clear "Reset Home"
+sleep 1
+tap_clear "Open on Home"
+sleep 1
+echo "PASS: accent colour, Home's rows (hide, reorder) and the start tab can be changed"
+
 echo "--- Importing a playlist file made by another app"
 # Different path styles, an internet stream (skipped), a moved file found by its tags, and a
 # song that isn't on the phone.
@@ -1358,6 +1532,18 @@ tap on-screen "Liked songs"
 sleep 3
 dump restored-liked
 grep -q "Smoke Song 1" "$OUT/restored-liked.xml" || fail "liked songs weren't restored"
+adb shell input keyevent KEYCODE_BACK
+sleep 2
+dump restored-menu
+tap restored-menu "More options"
+sleep 1
+dump restored-menu2
+tap restored-menu2 "Your recap"
+sleep 3
+dump restored-recap
+grep -q 'text="Tune 01"' "$OUT/restored-recap.xml" || fail "the recap's listening history wasn't restored"
+adb shell input keyevent KEYCODE_BACK
+sleep 1
 # Backups now carry on in the restored folder: no "(1)" copies next to the old files.
 sleep 8
 adb shell "ls '$BK' '$BK/Playlists'" > "$OUT/backup-files.txt"

@@ -65,6 +65,11 @@ fun LibraryScreen(vm: MusicViewModel) {
                 IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "More options") }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     DropdownMenuItem(
+                        text = { Text("Your recap") },
+                        leadingIcon = { Icon(Icons.Rounded.Insights, contentDescription = null, tint = Palette.SubText) },
+                        onClick = { menu = false; vm.open(Screen.Recap) },
+                    )
+                    DropdownMenuItem(
                         text = { Text("Find duplicate songs") },
                         leadingIcon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null, tint = Palette.SubText) },
                         onClick = { menu = false; vm.open(Screen.Duplicates) },

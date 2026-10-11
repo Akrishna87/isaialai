@@ -5,19 +5,24 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -31,6 +36,7 @@ import io.github.akrishna87.mymusic.Effects
 import io.github.akrishna87.mymusic.MusicViewModel
 import io.github.akrishna87.mymusic.ResumeMode
 import io.github.akrishna87.mymusic.Screen
+import io.github.akrishna87.mymusic.Section
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -52,7 +58,16 @@ fun SettingsScreen(vm: MusicViewModel) {
         ) {
             item { SettingsHeading("Appearance") }
             item { AppearanceCard() }
+            item { SettingsHeading("Home screen") }
+            item { HomeLayoutCard(vm) }
             item { SettingsHeading("Playback") }
+            item { SettingsCard { SwitchRow(
+                "Autoplay",
+                "When the last song in the queue starts, songs like it are added after it, so the music keeps going. " +
+                    "(Not while repeat is on.)",
+                checked = vm.autoplay,
+                onChange = vm::setAutoplayOn,
+            ) } }
             item { CrossfadeCard(vm) }
             item { ResumeCard(vm) }
             item { EvenVolumeCard(vm) }
@@ -96,6 +111,28 @@ private fun AppearanceCard() {
         }
         Text("The full player always stays dark, tinted by the song's cover.", color = Palette.SubText, fontSize = 13.sp)
         Spacer(Modifier.height(4.dp))
+        Text("Accent colour", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+        if (ThemeSettings.wallpaperColors && Build.VERSION.SDK_INT >= 31) {
+            Text("Using your wallpaper's colours. Turn that off below to pick one.", color = Palette.SubText, fontSize = 13.sp)
+        } else {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                AccentColor.entries.forEach { a ->
+                    val chosen = ThemeSettings.accent == a
+                    Box(
+                        Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(if (Palette.isDark) a.dark else a.light)
+                            .selectable(selected = chosen, role = Role.RadioButton) { ThemeSettings.setAccent(context, a) }
+                            .semantics { contentDescription = "Accent ${a.label}" },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (chosen) Icon(Icons.Rounded.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(4.dp))
         SwitchRow(
             "Player on the lock screen",
             "If you lock your phone while Isaialai is open, waking it shows the player with the album art, " +
@@ -109,6 +146,59 @@ private fun AppearanceCard() {
                 checked = ThemeSettings.wallpaperColors,
             ) { ThemeSettings.update(context, wallpaperColors = it) }
         }
+    }
+}
+
+/** Which rows Home shows, in what order, and which tab the app opens on. */
+@Composable
+private fun HomeLayoutCard(vm: MusicViewModel) {
+    val context = LocalContext.current
+    val order = ThemeSettings.homeOrder
+    val hidden = ThemeSettings.homeHidden
+    SettingsCard {
+        Text("Open the app on", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(Section.HOME to "Home", Section.SEARCH to "Search", Section.LIBRARY to "Library").forEach { (s, label) ->
+                FilterChip(
+                    selected = vm.startSection == s,
+                    onClick = { vm.setStartSection(s) },
+                    label = { Text(label) },
+                    modifier = Modifier.semantics { contentDescription = "Open on $label" },
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Text("Rows on Home", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+        Text("Switch rows off, or move them up and down.", color = Palette.SubText, fontSize = 13.sp)
+        order.forEachIndexed { i, section ->
+            val shown = section !in hidden
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .toggleable(value = shown, role = Role.Switch) {
+                            ThemeSettings.setHomeSections(context, order, if (it) hidden - section else hidden + section)
+                        }
+                        .semantics { contentDescription = "Show ${section.label}" }
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Switch(checked = shown, onCheckedChange = null, modifier = Modifier.scale(0.8f))
+                    Spacer(Modifier.width(8.dp))
+                    Text(section.label, color = if (shown) Palette.Text else Palette.SubText)
+                }
+                IconButton(
+                    onClick = { ThemeSettings.setHomeSections(context, order.toMutableList().apply { add(i - 1, removeAt(i)) }, hidden) },
+                    enabled = i > 0,
+                ) { Icon(Icons.Rounded.KeyboardArrowUp, "Move ${section.label} up") }
+                IconButton(
+                    onClick = { ThemeSettings.setHomeSections(context, order.toMutableList().apply { add(i + 1, removeAt(i)) }, hidden) },
+                    enabled = i < order.lastIndex,
+                ) { Icon(Icons.Rounded.KeyboardArrowDown, "Move ${section.label} down") }
+            }
+        }
+        TextButton(onClick = { ThemeSettings.setHomeSections(context, HomeSection.entries.toList(), emptySet()) }) { Text("Reset Home") }
     }
 }
 

@@ -115,7 +115,7 @@ class SongMatcher(songs: List<Song>) {
     }
 
     private fun norm(s: String): String =
-        Normalizer.normalize(s, Normalizer.Form.NFKC).lowercase().filter { it.isLetterOrDigit() }
+        Normalizer.normalize(s, Normalizer.Form.NFKC).lowercase().filter { Similar.isNamePart(it) }
 }
 
 /**
@@ -194,6 +194,9 @@ object BackupFile {
 
     class Play(val song: SongRef, val count: Int, val lastPlayed: Long)
 
+    /** One listen, for the recap. */
+    class Heard(val at: Long, val song: SongRef, val ms: Long)
+
     class Contents(
         val createdMs: Long,
         val playlists: List<Pair<String, List<SongRef>>>,
@@ -202,8 +205,9 @@ object BackupFile {
         val plays: List<Play>,
         val edits: List<Pair<SongRef, SongEdits.Edit>>,
         val settings: JSONObject?,
+        val listens: List<Heard> = emptyList(),
     ) {
-        val isEmpty: Boolean get() = playlists.isEmpty() && liked.isEmpty() && plays.isEmpty() && edits.isEmpty()
+        val isEmpty: Boolean get() = playlists.isEmpty() && liked.isEmpty() && plays.isEmpty() && edits.isEmpty() && listens.isEmpty()
     }
 
     fun write(c: Contents): String {
@@ -231,6 +235,8 @@ object BackupFile {
             ),
         )
         c.settings?.let { o.put("settings", it) }
+        // [when, song, ms listened] for each listen, oldest first.
+        o.put("listens", JSONArray(c.listens.map { JSONArray().put(it.at).put(ref(it.song)).put(it.ms) }))
         o.put("songs", songs) // last, so the readable parts come first
         return o.toString(1)
     }
@@ -259,6 +265,12 @@ object BackupFile {
                     }
                 },
                 settings = o.optJSONObject("settings"),
+                listens = o.optJSONArray("listens")?.let { a ->
+                    List(a.length()) { a.optJSONArray(it) }.mapNotNull { l ->
+                        if (l == null || l.length() < 3) null
+                        else at(l.optInt(1, -1))?.let { song -> Heard(l.optLong(0), song, l.optLong(2)) }
+                    }
+                }.orEmpty(),
             )
         }
     } catch (e: Exception) {
@@ -268,8 +280,8 @@ object BackupFile {
 
 /** Your choices that go in a backup: theme and sound settings (nothing about this phone itself). */
 object BackupSettings {
-    /** Theme, lock-screen player and song sort, kept in the "ui" preferences. */
-    val UI_KEYS = listOf("theme", "wallpaperColors", "lockScreenPlayer", "sort")
+    /** Theme and accent colour, lock-screen player, song sort, Home's rows and start tab, kept in the "ui" preferences. */
+    val UI_KEYS = listOf("theme", "wallpaperColors", "lockScreenPlayer", "sort", "accent", "homeSections", "homeHidden", "startSection")
 
     fun snapshot(context: android.content.Context): JSONObject {
         fun pick(prefs: android.content.SharedPreferences, keys: List<String>) = JSONObject().apply {

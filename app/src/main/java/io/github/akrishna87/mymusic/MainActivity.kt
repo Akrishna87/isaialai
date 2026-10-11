@@ -20,7 +20,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         ThemeSettings.load(this)
         setContent {
-            MyMusicTheme(ThemeSettings.mode, ThemeSettings.wallpaperColors) {
+            MyMusicTheme(ThemeSettings.mode, ThemeSettings.wallpaperColors, ThemeSettings.accent) {
                 MusicApp()
             }
         }
