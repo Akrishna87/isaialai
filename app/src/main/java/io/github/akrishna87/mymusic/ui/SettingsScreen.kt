@@ -161,7 +161,7 @@ private fun HomeLayoutCard(vm: MusicViewModel) {
             listOf(Section.HOME to "Home", Section.SEARCH to "Search", Section.LIBRARY to "Library").forEach { (s, label) ->
                 FilterChip(
                     selected = vm.startSection == s,
-                    onClick = { vm.setStartSection(s) },
+                    onClick = { vm.chooseStartSection(s) },
                     label = { Text(label) },
                     modifier = Modifier.semantics { contentDescription = "Open on $label" },
                 )

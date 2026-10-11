@@ -996,7 +996,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     /** The tab the app opens on. */
     var startSection by mutableStateOf(section); private set
 
-    fun setStartSection(s: Section) {
+    fun chooseStartSection(s: Section) {
         startSection = s
         prefs.edit().putString("startSection", s.name).apply()
     }
