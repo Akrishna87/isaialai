@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
@@ -16,12 +17,15 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -32,11 +36,31 @@ import io.github.akrishna87.mymusic.ArtistGroup
 import io.github.akrishna87.mymusic.LibraryGrouping
 import io.github.akrishna87.mymusic.MusicViewModel
 import io.github.akrishna87.mymusic.PlaylistStore
+import io.github.akrishna87.mymusic.RecapPeriod
+import io.github.akrishna87.mymusic.RecapStats
 import io.github.akrishna87.mymusic.Screen
 import io.github.akrishna87.mymusic.Song
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.format.TextStyle
+import java.util.Locale
 import kotlin.random.Random
+
+/** Home's rows; you can hide them and change their order in Settings. */
+enum class HomeSection(val label: String) {
+    SHORTCUTS("Shortcuts"),
+    CONTINUE("Continue listening"),
+    JUMP_BACK_IN("Jump back in"),
+    MIXES("Mixes for you"),
+    RECAP("Your recap"),
+    RECENTLY_ADDED("Recently added"),
+    YOUR_ARTISTS("Your artists"),
+    ON_REPEAT("On repeat"),
+    REDISCOVER("Rediscover"),
+}
+
+/** A ready-made Instant mix on Home: around an artist, a music director, or what you've been playing. */
+private class MixCardData(val title: String, val subtitle: String, val seeds: List<Song>, val key: String)
 
 private fun greeting(): String = when (LocalTime.now().hour) {
     in 5..11 -> "Good morning"
@@ -79,6 +103,25 @@ fun HomeScreen(vm: MusicViewModel) {
 
     val tint = rememberArtColor(history.firstNotNullOfOrNull { byId[it] } ?: songs.firstOrNull())
 
+    // Mixes: what you've played lately, then your top artists and music directors.
+    val mixes = remember(songs, counts, history) {
+        buildList {
+            val recentSongs = history.mapNotNull { byId[it] }.take(15)
+            if (recentSongs.size >= 3) add(MixCardData("Daily mix", "Songs like what you've been playing", recentSongs, "daily"))
+            topArtists.filter { !it.name.equals(Song.UNKNOWN_ARTIST, true) }.take(4).forEach {
+                add(MixCardData("${it.name} mix", "Artist", it.songs, "a:" + it.name.lowercase()))
+            }
+            LibraryGrouping.composers(songs)
+                .sortedByDescending { c -> c.songs.sumOf { vm.playCount(it.id) } * 1000 + c.songs.size }
+                .take(3)
+                .forEach { add(MixCardData("${it.name} mix", "Music director", it.songs, "c:" + it.name.lowercase())) }
+        }
+    }
+    LaunchedEffect(Unit) { vm.refreshListens() }
+    val listens = vm.listens
+    val month = remember(listens, byId) { RecapStats.of(listens, RecapPeriod.THIS_MONTH.range(), byId) }
+    val order = ThemeSettings.homeOrder.filter { it !in ThemeSettings.homeHidden }
+
     LazyColumn(
         Modifier
             .fillMaxSize()
@@ -102,41 +145,51 @@ fun HomeScreen(vm: MusicViewModel) {
                 }
             }
         }
-        item {
-            QuickTiles(vm, songs, if (recentAlbums.size >= 2) recentAlbums else newest)
-        }
-        item {
-            CardRow("Continue listening", continueListening, { "c:" + it.first.id }) { (song, point) ->
-                ContinueCard(song, point, onClick = { vm.play(listOf(song), 0, from = "Continue listening") })
+        for (section in order) when (section) {
+            HomeSection.SHORTCUTS -> item(key = section.name) {
+                QuickTiles(vm, songs, if (recentAlbums.size >= 2) recentAlbums else newest)
             }
-        }
-        item {
-            CardRow<Any>("Jump back in", jumpBackIn, { if (it is Song) "s:" + it.id else "a:" + (it as AlbumGroup).key }) { item ->
-                when (item) {
-                    is AlbumGroup -> AlbumCard(item, onClick = { vm.open(Screen.Album(item.key)) })
-                    is Song -> SongCard(item, onClick = { vm.play(listOf(item), 0, from = "Recently played") })
-                    else -> Unit
+            HomeSection.CONTINUE -> item(key = section.name) {
+                CardRow("Continue listening", continueListening, { "c:" + it.first.id }) { (song, point) ->
+                    ContinueCard(song, point, onClick = { vm.play(listOf(song), 0, from = "Continue listening") })
                 }
             }
-        }
-        item {
-            CardRow("Recently added", newest, { it.key }) { a ->
-                AlbumCard(a, onClick = { vm.open(Screen.Album(a.key)) })
+            HomeSection.JUMP_BACK_IN -> item(key = section.name) {
+                CardRow<Any>("Jump back in", jumpBackIn, { if (it is Song) "s:" + it.id else "a:" + (it as AlbumGroup).key }) { item ->
+                    when (item) {
+                        is AlbumGroup -> AlbumCard(item, onClick = { vm.open(Screen.Album(item.key)) })
+                        is Song -> SongCard(item, onClick = { vm.play(listOf(item), 0, from = "Recently played") })
+                        else -> Unit
+                    }
+                }
             }
-        }
-        item {
-            CardRow("Your artists", topArtists, { it.name.lowercase() }) { a ->
-                ArtistBubble(a, onClick = { vm.open(Screen.Artist(a.name)) })
+            HomeSection.MIXES -> item(key = section.name) {
+                CardRow("Mixes for you", mixes, { it.key }) { m ->
+                    MixCard(m, onClick = { vm.instantMix(m.title.removeSuffix(" mix"), m.seeds) })
+                }
             }
-        }
-        item {
-            CardRow("On repeat", onRepeat, { it.id }) { s ->
-                SongCard(s, onClick = { vm.play(onRepeat, onRepeat.indexOf(s), from = "On repeat") })
+            HomeSection.RECAP -> item(key = section.name) {
+                RecapCard(month, onClick = { vm.open(Screen.Recap) })
             }
-        }
-        item {
-            CardRow("Rediscover", rediscover, { it.key }) { a ->
-                AlbumCard(a, onClick = { vm.open(Screen.Album(a.key)) })
+            HomeSection.RECENTLY_ADDED -> item(key = section.name) {
+                CardRow("Recently added", newest, { it.key }) { a ->
+                    AlbumCard(a, onClick = { vm.open(Screen.Album(a.key)) })
+                }
+            }
+            HomeSection.YOUR_ARTISTS -> item(key = section.name) {
+                CardRow("Your artists", topArtists, { it.name.lowercase() }) { a ->
+                    ArtistBubble(a, onClick = { vm.open(Screen.Artist(a.name)) })
+                }
+            }
+            HomeSection.ON_REPEAT -> item(key = section.name) {
+                CardRow("On repeat", onRepeat, { it.id }) { s ->
+                    SongCard(s, onClick = { vm.play(onRepeat, onRepeat.indexOf(s), from = "On repeat") })
+                }
+            }
+            HomeSection.REDISCOVER -> item(key = section.name) {
+                CardRow("Rediscover", rediscover, { it.key }) { a ->
+                    AlbumCard(a, onClick = { vm.open(Screen.Album(a.key)) })
+                }
             }
         }
     }
@@ -229,5 +282,53 @@ private fun ContinueCard(song: Song, point: io.github.akrishna87.mymusic.ResumeP
         Spacer(Modifier.height(8.dp))
         Text(song.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
         Text("$left min left", color = Palette.SubText, maxLines = 1, fontSize = 13.sp)
+    }
+}
+
+/** An Instant mix on Home: the seed's cover, with the mix's name. */
+@Composable
+private fun MixCard(mix: MixCardData, onClick: () -> Unit) {
+    Column(Modifier.width(150.dp).clickable(onClick = onClick).semantics(mergeDescendants = true) {}) {
+        Box {
+            ArtImage(mix.seeds.first(), Modifier.size(150.dp).shadow(8.dp, RoundedCornerShape(6.dp)), sizePx = 400, shape = RoundedCornerShape(6.dp), iconSize = 40.dp)
+            Box(
+                Modifier.matchParentSize().clip(RoundedCornerShape(6.dp))
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.65f)))),
+            )
+            Row(Modifier.align(Alignment.BottomStart).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Mix", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(mix.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
+        Text(mix.subtitle, color = Palette.SubText, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
+    }
+}
+
+/** This month's listening in a line, opening the full recap. */
+@Composable
+private fun RecapCard(month: RecapStats, onClick: () -> Unit) {
+    val name = LocalDate.now().month.getDisplayName(TextStyle.FULL, Locale.getDefault())
+    Column(
+        Modifier
+            .padding(start = 16.dp, end = 16.dp, top = 24.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(BrandGradient)
+            .clickable(onClick = onClick)
+            .padding(18.dp),
+    ) {
+        Text("Your $name so far", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            if (month.isEmpty) "Play some music and see what you listened to most."
+            else "${RecapStats.duration(month.ms)} of music" + (month.topArtists.firstOrNull()?.let { " · most of all ${it.name}" } ?: ""),
+            color = Color.White.copy(alpha = 0.9f),
+            fontSize = 14.sp,
+        )
+        Spacer(Modifier.height(10.dp))
+        Text("See your recap ›", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
     }
 }

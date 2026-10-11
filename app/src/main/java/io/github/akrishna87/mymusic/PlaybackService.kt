@@ -110,6 +110,7 @@ class PlaybackService : MediaLibraryService() {
             Effects.KEY_EVEN_VOLUME -> updateEvenVolume()
             Effects.KEY_BOOST -> applyLoudness()
             Effects.KEY_CROSSFADE -> if (crossfadeMs() == 0L) cancelFade()
+            Effects.KEY_AUTOPLAY -> maybeAutoplay()
             in Effects.STATUS_KEYS -> Unit
             else -> applyEffects()
         }
@@ -189,6 +190,8 @@ class PlaybackService : MediaLibraryService() {
                 // phone calls and other apps' sounds, which silence the player without pausing it.
                 if (fade?.handingOver == false) fadePlayer?.playWhenReady = isPlaying
                 if (!isPlaying) rememberWhereLeft()
+                if (logItem == null) logItem = player.currentMediaItem
+                logPlaying(isPlaying)
                 savePosition()
                 PlayerWidget.update(this@PlaybackService, player)
             }
@@ -214,6 +217,9 @@ class PlaybackService : MediaLibraryService() {
                     if (id != mediaItem?.mediaId && resumeMode().applies(dur)) ResumePoints.save(resumePrefs, id, pos, dur)
                 }
                 lastSong = null
+                logFinish()
+                logItem = mediaItem
+                if (player.isPlaying) logPlaying(true)
                 if (fade?.handingOver != true && reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) continueWhereLeft(mediaItem)
                 updateEvenVolume()
                 // A brand-new queue started while shuffle is on: shuffle it starting from the chosen song.
@@ -222,6 +228,7 @@ class PlaybackService : MediaLibraryService() {
                 }
                 savePosition()
                 PlayerWidget.update(this@PlaybackService, player)
+                maybeAutoplay()
             }
 
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
@@ -231,6 +238,7 @@ class PlaybackService : MediaLibraryService() {
                         cancelFade()
                     }
                     saveQueue()
+                    maybeAutoplay() // e.g. the songs after this one were removed
                 }
             }
 
@@ -238,9 +246,13 @@ class PlaybackService : MediaLibraryService() {
                 if (fade?.handingOver == false) cancelFade() // the next song may have changed
                 if (shuffleModeEnabled) shuffleFromCurrent()
                 savePosition()
+                maybeAutoplay() // with shuffle off, this may now be the last song
             }
 
-            override fun onRepeatModeChanged(repeatMode: Int) = savePosition()
+            override fun onRepeatModeChanged(repeatMode: Int) {
+                savePosition()
+                maybeAutoplay()
+            }
 
             override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
                 getSharedPreferences("position", Context.MODE_PRIVATE).edit()
@@ -292,6 +304,7 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onDestroy() {
         activePlayer = null
+        logFinish()
         rememberWhereLeft()
         savePosition()
         clearSleep()
@@ -638,6 +651,92 @@ class PlaybackService : MediaLibraryService() {
 
     private fun withSeekButtons(commands: SessionCommands): SessionCommands =
         commands.buildUpon().apply { SEEK_COMMANDS.forEach { add(it) } }.build()
+
+    // ----- Autoplay -----
+
+    private var autoplayJob: Job? = null
+
+    /**
+     * When the last song in the queue starts (and repeat is off), adds similar songs after it so
+     * the music doesn't stop. Uses the songs played just before as well as the current one.
+     */
+    private fun maybeAutoplay() {
+        if (!effectsPrefs.getBoolean(Effects.KEY_AUTOPLAY, false)) return
+        if (player.repeatMode != Player.REPEAT_MODE_OFF || player.mediaItemCount == 0) return
+        if (player.hasNextMediaItem() || player.playbackState == Player.STATE_ENDED) return
+        if (autoplayJob?.isActive == true) return
+        val current = player.currentMediaItem?.mediaId ?: return
+        val inQueue = (0 until player.mediaItemCount).mapTo(HashSet()) { player.getMediaItemAt(it).mediaId }
+        val order = if (player.shuffleModeEnabled) shuffledIndexes() else (0 until player.mediaItemCount).toMutableList()
+        val before = order.takeWhile { it != player.currentMediaItemIndex }.takeLast(4).map { player.getMediaItemAt(it).mediaId }
+        autoplayJob = scope.launch {
+            val more = withContext(Dispatchers.IO) {
+                try {
+                    val library = carLibrary.songs()
+                    val byId = library.associateBy { it.id }
+                    val seeds = (listOf(current) + before.reversed()).mapNotNull { byId[it] }
+                    Similar(library, readListeningSignals(this@PlaybackService)).mix(seeds, size = 20, exclude = inQueue)
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            }
+            // Only if nothing changed meanwhile (another song chosen, songs added, repeat turned on).
+            if (more.isEmpty() || player.currentMediaItem?.mediaId != current || player.hasNextMediaItem()) return@launch
+            if (player.repeatMode != Player.REPEAT_MODE_OFF) return@launch
+            val first = player.mediaItemCount
+            player.addMediaItems(more.map { it.toMediaItem() })
+            if (player.shuffleModeEnabled) {
+                // Play them next, in the mix's order (ExoPlayer would scatter them through the shuffle).
+                val shuffled = shuffledIndexes().filter { it < first }
+                applyShuffleOrder(shuffled + (first until player.mediaItemCount))
+            }
+        }
+    }
+
+    // ----- Listening log (for the recap) -----
+
+    private var logItem: MediaItem? = null
+    private var logMs = 0L
+    private var logSince = 0L
+    private var logStartedAt = 0L
+    private var logDurationMs = 0L
+
+    /** Counts the time the current song is actually playing. */
+    private fun logPlaying(playing: Boolean) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (playing) {
+            if (logSince == 0L) logSince = now
+            if (logStartedAt == 0L) logStartedAt = System.currentTimeMillis()
+            player.duration.takeIf { it > 0 && it != C.TIME_UNSET }?.let { logDurationMs = it }
+        } else if (logSince != 0L) {
+            logMs += now - logSince
+            logSince = 0L
+        }
+    }
+
+    /** The song being logged is over: saves it if it was listened to (30 s, or half of a short song). */
+    private fun logFinish() {
+        logPlaying(false)
+        val item = logItem
+        val need = if (logDurationMs > 0) minOf(30_000L, logDurationMs / 2) else 30_000L
+        if (item != null && item.mediaId.isNotEmpty() && logMs >= need) {
+            val md = item.mediaMetadata
+            val listen = Listen(
+                at = logStartedAt.takeIf { it > 0 } ?: (System.currentTimeMillis() - logMs),
+                songId = item.mediaId,
+                ms = logMs,
+                title = md.title?.toString().orEmpty(),
+                artist = md.artist?.toString().orEmpty(),
+                album = md.albumTitle?.toString().orEmpty(),
+            )
+            val app = applicationContext
+            libraryExecutor.execute { PlayLog.add(app, listen) }
+        }
+        logItem = null
+        logMs = 0L
+        logStartedAt = 0L
+        logDurationMs = 0L
+    }
 
     // ----- Speed & pitch -----
 
