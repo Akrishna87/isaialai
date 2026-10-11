@@ -1514,7 +1514,8 @@ adb push "$OUT/Road Trip.m3u" "/sdcard/Download/Road Trip.m3u" > /dev/null
 fresh_start
 go_library
 open_settings
-tap_clear "Import a playlist file (.m3u)"
+on_screen "Import a playlist file (.m3u)"
+tap_here "Import a playlist file (.m3u)"
 sleep 4
 dump file-picker
 if ! python3 "$HERE/find_text.py" "$OUT/file-picker.xml" "Road Trip.m3u" > /dev/null 2>&1; then
@@ -1563,7 +1564,8 @@ sleep 2
 dump wiped
 grep -q 'text="Order Test"' "$OUT/wiped.xml" && fail "the app's data wasn't cleared"
 open_settings
-tap_clear "Restore from backup"
+on_screen "Restore from backup"
+tap_here "Restore from backup"
 sleep 2
 dump restore-explain
 tap restore-explain "Choose folder"
