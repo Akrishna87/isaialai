@@ -1485,8 +1485,8 @@ for _ in 1 2 3 4 5; do
 done
 go_library
 open_settings
-tap_clear "Reset Home"
-sleep 1
+on_screen "Reset Home"
+tap_here "Reset Home"
 start_chip "Home"
 sleep 1
 echo "PASS: accent colour, Home's rows (hide, reorder) and the start tab can be changed"
