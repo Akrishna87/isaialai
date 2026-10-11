@@ -1342,7 +1342,16 @@ tap autoplay-player "Show up next"
 sleep 2
 dump autoplay-queue
 shot 61-autoplay
-python3 "$HERE/up_next.py" "$OUT/autoplay-queue.xml" "Tune 12" > "$OUT/autoplay-queue.txt" || true
+# Every Tune is already in the queue, so Autoplay adds other songs: list every song title in Up next.
+python3 - "$OUT/autoplay-queue.xml" "Tune 12" > "$OUT/autoplay-queue.txt" <<'PY' || true
+import re, sys, xml.etree.ElementTree as ET
+texts = [n.get("text") or "" for n in ET.parse(sys.argv[1]).iter("node")]
+if "Up next" in texts:
+    artists = {"CI Band", "Shuffle Band", "Twin Band", "Loud Band", "Hidden Band", "Download Band", "Unknown artist"}
+    for t in texts[texts.index("Up next") + 1:]:
+        if t and t != sys.argv[2] and t not in artists and not t.startswith("Drag ") and not re.fullmatch(r"\d+:\d\d|[\d.]+×", t):
+            print(t)
+PY
 echo "Up next after the album's last song:"; head -8 "$OUT/autoplay-queue.txt"
 grep -q "Nothing after this song" "$OUT/autoplay-queue.xml" && fail "Autoplay didn't add songs after the last one"
 [ "$(wc -l < "$OUT/autoplay-queue.txt")" -ge 4 ] || fail "Autoplay added hardly any songs"
