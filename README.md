@@ -153,6 +153,16 @@ A one-line-per-feature list, ready to share, is in [FEATURES.md](FEATURES.md).
     anything changes. Restoring only adds: nothing on the phone is deleted,
     and restoring again later (after copying more music) fills in the rest.
     Backups then carry on in that same folder.
+  - **Move all your songs in one zip**: **Pack all songs into a zip…** puts
+    every song in one .zip file, each in its own folder (`Music/Hindi/…`),
+    together with a fresh backup of your playlists, liked songs and settings.
+    It shows how big the zip will be and how much space is free first (songs
+    are already compressed, so the zip is about as big as the songs); save it
+    to Download, a memory card or a USB drive. On the new phone, **Unpack
+    songs from a zip…** puts each song back in its folder (songs already there
+    are skipped, so unpacking again after stopping just adds the rest), then
+    offers to restore the playlists from the backup inside. Keep Isaialai
+    open while it runs; the screen stays on.
   - **Import a playlist file (.m3u)**: add a playlist made by another app,
     or one sent to you. Songs are found by their path (in any style: phone,
     memory card, even a computer's `C:\Music\…`), then by file name, then by

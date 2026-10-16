@@ -1551,6 +1551,46 @@ echo "imported playlist: $ROAD"
 [ "$ROAD" = "Tune 05 Tune 07 Smoke Song 3" ] || fail "the imported playlist doesn't have the right songs in order"
 echo "PASS: a .m3u playlist from another app can be imported (paths in any style, missing songs reported)"
 
+echo "--- Packing all songs into one zip"
+fresh_start
+go_library
+open_settings
+on_screen "Pack all songs into a zip…"
+tap_here "Pack all songs into a zip…"
+sleep 3
+dump zip-ask
+shot 70-zip-ask
+grep -q "Pack all songs into a zip?" "$OUT/zip-ask.xml" || fail "packing songs didn't ask first"
+grep -q "[0-9] songs, about " "$OUT/zip-ask.xml" || fail "the zip dialog doesn't say how many songs and how big"
+tap zip-ask "Choose where to save" exact
+sleep 4
+dump zip-save
+shot 71-zip-picker
+tap zip-save "Save" exact
+ZIP=""
+for _ in $(seq 1 40); do
+  sleep 2
+  dump zip-progress
+  grep -q "Packing your songs" "$OUT/zip-progress.xml" && continue
+  ZIP=$(adb shell ls /sdcard/Download | tr -d '\r' | grep "^Isaialai music .*\.zip$" | head -1 || true)
+  [ -n "$ZIP" ] && break
+done
+[ -n "$ZIP" ] || fail "no 'Isaialai music … .zip' was saved in Download"
+adb pull "/sdcard/Download/$ZIP" "$OUT/music.zip" > /dev/null
+python3 - "$OUT/music.zip" <<'PY' || fail "the songs zip isn't right"
+import sys, zipfile
+z = zipfile.ZipFile(sys.argv[1])
+assert z.testzip() is None, "a damaged entry"
+names = z.namelist()
+songs = [n for n in names if n.lower().endswith((".mp3", ".m4a"))]
+print(len(songs), "songs in the zip, e.g.", songs[:4])
+for want in ["Music/ShuffleTest/tune01.mp3", "Music/SmokeTest/song1.mp3", "Download/Isaialai/Isaialai backup.json", "Download/Isaialai/Playlists/Order Test.m3u"]:
+    assert want in names, "missing " + want
+assert len(songs) >= 20, "too few songs"
+assert z.getinfo("Music/ShuffleTest/tune01.mp3").file_size > 100000
+PY
+echo "PASS: every song (with its folder) and the backup go into one zip"
+
 echo "--- Restoring after reinstalling (or on a new phone)"
 for _ in $(seq 1 15); do adb shell "ls '$BK/Playlists/Road Trip.m3u'" > /dev/null 2>&1 && break; sleep 2; done
 adb shell "ls '$BK/Playlists/Road Trip.m3u'" > /dev/null 2>&1 || fail "the imported playlist wasn't added to the backup"
@@ -1623,6 +1663,60 @@ adb shell "ls '$BK' '$BK/Playlists'" > "$OUT/backup-files.txt"
 cat "$OUT/backup-files.txt"
 grep -q "(1)\|(2)" "$OUT/backup-files.txt" && fail "restoring left duplicate backup files"
 echo "PASS: after reinstalling, playlists, liked songs and the rest come back from the Isaialai folder"
+
+echo "--- New phone: unpack the songs zip, then restore from the backup inside it"
+adb shell rm -rf /sdcard/Music/ShuffleTest
+adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null 2>&1 || true
+for _ in $(seq 1 15); do
+  adb shell content query --uri content://media/external/audio/media --projection title | grep -q "Tune 0" || break
+  sleep 2
+done
+adb shell content query --uri content://media/external/audio/media --projection title | grep -q "Tune 0" && fail "the test songs weren't removed before unpacking"
+adb shell pm clear "$PKG"
+adb shell pm grant "$PKG" android.permission.READ_MEDIA_AUDIO
+adb shell am start -W -n "$PKG/.MainActivity" > /dev/null
+sleep 8
+go_library
+open_settings
+on_screen "Unpack songs from a zip…"
+tap_here "Unpack songs from a zip…"
+sleep 4
+dump unzip-picker
+if ! python3 "$HERE/find_text.py" "$OUT/unzip-picker.xml" "$ZIP" > /dev/null 2>&1; then
+  tap unzip-picker "Show roots"
+  sleep 2
+  dump unzip-roots
+  tap unzip-roots "Downloads"
+  sleep 2
+  dump unzip-picker
+fi
+shot 72-unzip-picker
+tap unzip-picker "$ZIP"
+for _ in $(seq 1 40); do
+  sleep 2
+  dump unzip-after
+  grep -q "Restore this backup?" "$OUT/unzip-after.xml" && break
+done
+shot 73-unzip-restore
+adb shell content query --uri content://media/external/audio/media --projection _display_name:relative_path > "$OUT/after-unzip.txt"
+grep -q "_display_name=tune01.mp3, relative_path=Music/ShuffleTest/" "$OUT/after-unzip.txt" || fail "unpacking didn't put tune01.mp3 back in Music/ShuffleTest"
+grep -c "relative_path=Music/SmokeTest/" "$OUT/after-unzip.txt" | grep -qx 3 || echo "(note: songs already on the phone: $(grep -c 'relative_path=Music/SmokeTest/' "$OUT/after-unzip.txt") in Music/SmokeTest)"
+grep -q "song1 (1).mp3" "$OUT/after-unzip.txt" && fail "unpacking made a copy of a song that was already on the phone"
+grep -q "Restore this backup?" "$OUT/unzip-after.xml" || fail "after unpacking, the backup in the zip wasn't offered"
+tap unzip-after "Restore" exact
+sleep 4
+adb shell input keyevent KEYCODE_BACK # Settings -> Library
+sleep 2
+chip "Playlists"
+sleep 2
+on_screen "Order Test"
+tap on-screen "Order Test"
+sleep 3
+scroll_down
+dump unzip-order
+echo "playlist after unpacking and restoring: $(playlist_order unzip-order)"
+[ "$(playlist_order unzip-order)" = "Tune 01 Tune 02 Tune 03" ] || fail "the playlist doesn't find the unpacked songs"
+echo "PASS: on a new phone, the zip puts the songs back in their folders and brings the playlists with them"
 
 echo "--- Android Auto"
 # Android prints the service either as "pkg/.PlaybackService" or "name=pkg.PlaybackService".
