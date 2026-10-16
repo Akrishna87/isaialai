@@ -65,11 +65,29 @@ menu_item() { # menu_item <dump> <song> <item>: open a song's ⋮ menu and tap a
   done
   fail "the song menu has no '$3'"
 }
+scroll_step() { # drag the list up by a third of the screen and let go without a fling, so no row is skipped
+  local size w h x
+  size=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); w=${size%x*}; h=${size#*x}; x=$((w / 2))
+  adb shell "input motionevent DOWN $x $((h * 65 / 100)); input motionevent MOVE $x $((h * 55 / 100)); input motionevent MOVE $x $((h * 45 / 100)); input motionevent MOVE $x $((h * 35 / 100)); sleep 0.4; input motionevent UP $x $((h * 35 / 100))"
+  sleep 1
+}
+tap_here() { # tap_here <text>: tap the smallest element called <text> on screen, nudging it up from under the mini player
+  local xy ty i
+  for i in 1 2 3; do
+    dump here
+    xy=$(python3 "$HERE/find_text.py" "$OUT/here.xml" "$1" smallest) || fail "'$1' isn't on screen"
+    read -r _ ty <<<"$xy"
+    if [ "$ty" -lt $((H * 72 / 100)) ]; then adb shell input tap $xy; sleep 1; return 0; fi
+    adb shell "input motionevent DOWN $((W / 2)) $((H * 60 / 100)); input motionevent MOVE $((W / 2)) $((H * 45 / 100)); input motionevent MOVE $((W / 2)) $((H * 35 / 100)); sleep 0.4; input motionevent UP $((W / 2)) $((H * 35 / 100))"
+    sleep 1
+  done
+  fail "'$1' stays under the mini player"
+}
 tap_clear() { # tap_clear <text>: scroll until <text> is above the mini player, then tap it
   local i b x1 y1 x2 y2 h density limit home
   h=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); h=${h#*x}
   density=$(adb shell wm density | grep -o '[0-9]*' | tail -1)
-  for i in 1 2 3 4 5; do
+  for i in 1 2 3 4 5 6 7 8 9 10; do
     dump clear
     # The mini player sits just above the tab bar: about 90 dp above the "Home" tab's label.
     limit=$((h * 70 / 100))
@@ -81,7 +99,7 @@ tap_clear() { # tap_clear <text>: scroll until <text> is above the mini player, 
       read -r x1 y1 x2 y2 <<<"$b"
       if [ $(((y1 + y2) / 2)) -lt "$limit" ]; then adb shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2)); return 0; fi
     fi
-    scroll_down
+    scroll_step # no fling, so it can't shoot past
   done
   fail "couldn't get '$1' clear of the mini player to tap it"
 }
@@ -1039,12 +1057,6 @@ adb shell input keyevent KEYCODE_MEDIA_PLAY
 sleep 2
 
 echo "--- Reorder songs in a playlist"
-scroll_step() { # drag the list up by a third of the screen and let go without a fling, so no row is skipped
-  local size w h x
-  size=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); w=${size%x*}; h=${size#*x}; x=$((w / 2))
-  adb shell "input motionevent DOWN $x $((h * 65 / 100)); input motionevent MOVE $x $((h * 55 / 100)); input motionevent MOVE $x $((h * 45 / 100)); input motionevent MOVE $x $((h * 35 / 100)); sleep 0.4; input motionevent UP $x $((h * 35 / 100))"
-  sleep 1
-}
 on_screen() { # on_screen <text>: scroll down until <text> is on screen; if it isn't found, start again from the top
   local pass i size w h
   for pass in 1 2; do
@@ -1467,18 +1479,6 @@ for _ in 1 2 3; do
   sleep 1
 done
 shot 65-home-rows-settings
-tap_here() { # tap_here <text>: tap the smallest element called <text> on screen, nudging it up from under the mini player
-  local xy ty i
-  for i in 1 2 3; do
-    dump here
-    xy=$(python3 "$HERE/find_text.py" "$OUT/here.xml" "$1" smallest) || fail "'$1' isn't on screen"
-    read -r _ ty <<<"$xy"
-    if [ "$ty" -lt $((H * 72 / 100)) ]; then adb shell input tap $xy; sleep 1; return 0; fi
-    adb shell "input motionevent DOWN $((W / 2)) $((H * 60 / 100)); input motionevent MOVE $((W / 2)) $((H * 45 / 100)); input motionevent MOVE $((W / 2)) $((H * 35 / 100)); sleep 0.4; input motionevent UP $((W / 2)) $((H * 35 / 100))"
-    sleep 1
-  done
-  fail "'$1' stays under the mini player"
-}
 tap_here "Your artists" # the row's switch
 dump home-rows-after
 [ "$(switch_state home-rows-after "Your artists")" = off ] || fail "the 'Your artists' switch didn't turn off"
