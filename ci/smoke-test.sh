@@ -688,12 +688,14 @@ dump playlists2
 tap playlists2 "Never played"
 sleep 2
 # The list animates when the song playing now drops out of it; read it again until it settles.
+# (The row's ⋮ button names the song too: the dump sometimes leaves out the titles of the last rows.)
 for _ in 1 2 3; do
   dump never-played
-  grep -q 'text="Twin Song"' "$OUT/never-played.xml" && break
+  grep -q 'text="Twin Song"\|content-desc="More options for Twin Song"' "$OUT/never-played.xml" && break
   sleep 2
 done
-grep -q 'text="Twin Song"' "$OUT/never-played.xml" || fail "Never played doesn't list a song that was never played"
+grep -q 'text="Twin Song"\|content-desc="More options for Twin Song"' "$OUT/never-played.xml" \
+  || fail "Never played doesn't list a song that was never played"
 grep -q 'text="Smoke Song 1"' "$OUT/never-played.xml" && fail "Never played lists a song that was played"
 echo "PASS: smart playlists fill themselves"
 adb shell input keyevent KEYCODE_BACK
