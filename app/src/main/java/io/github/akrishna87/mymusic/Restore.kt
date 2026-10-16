@@ -68,6 +68,10 @@ class RestorePlan(
             return if (parsed.isEmpty()) null else fromPlaylistFiles(parsed, library, where)
         }
 
+        /** The backup found inside a zip of songs (see [MusicZip]), or null if it isn't one. */
+        fun fromBackupText(text: String, library: List<Song>, source: String): RestorePlan? =
+            BackupFile.read(text)?.let { fromBackup(it, library, source, adopt = null) }
+
         /** Reads one picked file: an Isaialai backup, or a .m3u playlist. */
         fun fromFile(context: Context, uri: Uri, library: List<Song>): RestorePlan? {
             val text = BackupStorage.readText(context, uri) ?: return null

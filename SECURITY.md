@@ -25,6 +25,12 @@ Results of a code review of Isaialai and what was changed.
   are parsed, never run, are limited to 20 MB, and settings from a backup
   are range-checked. Isaialai keeps access only to the folder you restored
   from, to keep the backup there up to date.
+- **Unpacking a songs zip is careful.** Only audio files (and the backup file) are
+  taken from the zip; anything else is ignored. Entry names are cleaned so nothing can be
+  written outside the phone's shared storage ("..", absolute paths and control characters are
+  refused), songs go in through Android's media library, and unpacking stops while less than
+  200 MB is free, checking as it goes, so a zip that claims small files but unpacks huge ones
+  can't fill the phone.
 - **Ringtones only with your say-so.** Setting a cut as your ringtone,
   notification or alarm sound uses `WRITE_SETTINGS`. Android keeps that off
   until you turn on "Allow modifying system settings" for Isaialai, and the

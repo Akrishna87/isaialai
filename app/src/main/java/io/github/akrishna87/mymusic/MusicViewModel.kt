@@ -792,6 +792,19 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun runBackup(force: Boolean): Boolean? {
         // Before the library is read (or without permission to read it) songs can't be described.
         if (loading || rawSongs.isEmpty()) return if (force) false else null
+        val result = backupLock.withLock {
+            val built = backupFiles(force) ?: return@withLock null
+            withContext(Dispatchers.IO) { backupStorage.writeAll(built.first, built.second, force) }
+        }
+        backupVersion++
+        return result
+    }
+
+    /**
+     * The backup file and a .m3u per playlist, as (path in the backup folder → text), with the
+     * texts to compare for "unchanged". Null if there's nothing worth backing up (unless [force]).
+     */
+    private suspend fun backupFiles(force: Boolean): Pair<Map<String, String>, Map<String, String>>? {
         val app = getApplication<Application>()
         val lists = playlists.items.toList()
         val recent = history
@@ -799,7 +812,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         val last = HashMap(lastPlayed)
         val edited = edits.all()
         val byId = rawSongs.associateBy { it.id }
-        val result = backupLock.withLock { withContext(Dispatchers.IO) {
+        return withContext(Dispatchers.IO) {
             val cache = RefCache.load(app)
             // Songs not on the phone right now (memory card out?) keep how they were last described.
             fun ref(id: String): SongRef? = byId[id]?.let { SongRef.of(it) }?.also { cache[id] = it } ?: cache[id]
@@ -832,10 +845,8 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
             }
             val keep = (lists.flatMap { it.songIds } + recent + counts.keys + edited.keys).toSet()
             RefCache.save(app, cache.filterKeys { it in keep })
-            backupStorage.writeAll(files, sameAs, force)
-        } }
-        backupVersion++
-        return result
+            files to sameAs
+        }
     }
 
     /** Reads the backup (or the playlist files) in a folder you picked, to show what it holds. */
@@ -999,6 +1010,111 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     fun chooseStartSection(s: Section) {
         startSection = s
         prefs.edit().putString("startSection", s.name).apply()
+    }
+
+    // ----- All songs in one zip (moving to a new phone) -----
+
+    /** Packing or unpacking in progress, for the progress dialog. */
+    var transfer by mutableStateOf<MusicZip.Progress?>(null); private set
+    /** Waiting for you to confirm packing: how many songs, how big, how much space is free. */
+    var zipPlan by mutableStateOf<MusicZip.Plan?>(null)
+    private var transferJob: Job? = null
+
+    fun prepareZip() {
+        if (loading || rawSongs.isEmpty()) {
+            messageChannel.trySend("Wait for your songs to load, then try again")
+            return
+        }
+        val songsNow = rawSongs
+        viewModelScope.launch {
+            zipPlan = withContext(Dispatchers.IO) { MusicZip.plan(getApplication(), songsNow) }
+        }
+    }
+
+    fun cancelTransfer() {
+        transferJob?.cancel()
+    }
+
+    /** Packs every song (and a fresh backup) into the zip file at [target]. */
+    fun packSongs(target: Uri) {
+        val plan = zipPlan ?: return
+        zipPlan = null
+        val app = getApplication<Application>()
+        transferJob = viewModelScope.launch {
+            transfer = MusicZip.Progress("Packing your songs", 0, plan.songs.size, 0, plan.totalBytes, "")
+            val backup = try {
+                backupLock.withLock { backupFiles(force = true) }?.first.orEmpty()
+            } catch (e: Exception) {
+                emptyMap()
+            }
+            fun removeUnfinished() = try {
+                android.provider.DocumentsContract.deleteDocument(app.contentResolver, target)
+            } catch (e: Exception) {
+                false
+            }
+            val packed = try {
+                withContext(Dispatchers.IO) { MusicZip.pack(app, plan, backup, target) { transfer = it } }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { removeUnfinished() }
+                transfer = null
+                messageChannel.trySend("Stopped. The unfinished zip was deleted.")
+                throw e
+            } catch (e: Exception) {
+                withContext(Dispatchers.IO) { removeUnfinished() }
+                transfer = null
+                messageChannel.trySend(
+                    if (MusicZip.freeBytes() in 0 until 50L * 1024 * 1024) "Not enough space to finish the zip. Free some space, or save it to a memory card or USB drive."
+                    else "Couldn't make the zip",
+                )
+                return@launch
+            }
+            transfer = null
+            val size = android.text.format.Formatter.formatShortFileSize(app, plan.totalBytes)
+            messageChannel.trySend(
+                "Packed ${songCount(packed)} ($size) with your playlists. Copy the zip to your new phone, " +
+                    "then use “Unpack songs from a zip” in Isaialai there.",
+            )
+        }
+    }
+
+    /** Puts the songs from a zip made by [packSongs] back in their folders, then offers its backup. */
+    fun unpackSongs(source: Uri) {
+        val app = getApplication<Application>()
+        val known = rawSongs.mapTo(HashSet()) { it.locationKey }
+        transferJob = viewModelScope.launch {
+            transfer = MusicZip.Progress("Unpacking songs", 0, -1, 0, 0, "")
+            val result = try {
+                withContext(Dispatchers.IO) { MusicZip.unpack(app, source, known) { transfer = it } }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                transfer = null
+                messageChannel.trySend("Stopped. The songs unpacked so far are kept; unpack the zip again to add the rest.")
+                refreshLibrary()
+                throw e
+            } catch (e: MusicZip.NotEnoughSpace) {
+                transfer = null
+                messageChannel.trySend("The phone is almost full, so unpacking stopped. Free some space, then unpack the zip again to add the rest.")
+                refreshLibrary()
+                return@launch
+            } catch (e: Exception) {
+                transfer = null
+                messageChannel.trySend("Couldn't read that zip")
+                return@launch
+            }
+            transfer = null
+            refreshLibrary()
+            libraryJob?.join()
+            messageChannel.trySend(
+                buildString {
+                    append("Added ${songCount(result.added)}")
+                    if (result.skipped > 0) append(" (${songCount(result.skipped)} already here)")
+                    if (result.failed > 0) append(". ${songCount(result.failed)} couldn't be saved")
+                },
+            )
+            val text = result.backupText ?: return@launch
+            val songsNow = rawSongs
+            val plan = withContext(Dispatchers.Default) { RestorePlan.fromBackupText(text, songsNow, "the zip") }
+            if (plan != null) restorePlan = plan
+        }
     }
 }
 

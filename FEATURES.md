@@ -37,6 +37,7 @@
 🧹 Duplicate finder to clean up songs saved twice.
 💾 Automatic backup of playlists, likes, play counts and settings to a folder in Download, with no internet.
 📲 Move to a new phone by copying that folder with any file manager, then tap Restore.
+🗜️ Pack all your songs (and playlists) into one zip, and unpack it on your new phone.
 📄 Playlists saved as .m3u files that other music apps can open; import .m3u playlists from other apps.
 🛡️ Private and secure: no internet access, and updates signed with the app's own key.
 
