@@ -6,7 +6,8 @@ builds install over the old one and keep your playlists and settings.
 
 A native Android music player that plays the songs already saved on your
 phone **straight from storage**. There's nothing to pick or import and no
-copies, uploads, ads or account. New songs you download show up by
+copies, uploads, ads or account. (It goes online only when you tap
+**Check for updates** in Settings.) New songs you download show up by
 themselves.
 
 ## Installing it
@@ -21,7 +22,8 @@ themselves.
    it isn't from the Play Store. Tap **More details → Install anyway**.
 3. Open **Isaialai** and tap **Allow access to music**.
 
-To update, install a newer `Isaialai.apk` the same way. It installs over the
+To update, open **Settings → App updates → Check for updates**, or install a
+newer `Isaialai.apk` the same way. It installs over the
 old one and keeps your playlists.
 
 ## Features

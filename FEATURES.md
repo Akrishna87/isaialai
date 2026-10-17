@@ -1,6 +1,6 @@
 🎧 Isaialai (இசையலை) – music player for Android
 
-🎵 Plays the songs already on your phone, straight from storage. No ads, no account, no internet.
+🎵 Plays the songs already on your phone, straight from storage. No ads, no account, and it only goes online if you tap Check for updates.
 📂 Finds songs in every folder, even ones other players miss (WhatsApp, Telegram, downloads).
 🗂️ Browse your folders like a file manager.
 🏠 Home shows Jump back in, Mixes for you, Your recap, Recently added, Your artists, On repeat and Rediscover.
@@ -39,6 +39,6 @@
 📲 Move to a new phone by copying that folder with any file manager, then tap Restore.
 🗜️ Pack all your songs (and playlists) into one zip, and unpack it on your new phone.
 📄 Playlists saved as .m3u files that other music apps can open; import .m3u playlists from other apps.
-🛡️ Private and secure: no internet access, and updates signed with the app's own key.
+🛡️ Private and secure: online only when you tap Check for updates, nothing about you is sent, and updates must be signed with the app's own key.
 
 ⬇️ Download: https://github.com/Akrishna87/isaialai/releases/download/music-player-latest/Isaialai.apk

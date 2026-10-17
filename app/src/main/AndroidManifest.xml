@@ -25,6 +25,11 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
 
+    <!-- "Check for updates" in Settings: asks github.com whether a newer build exists, only when
+         the button is tapped, and installs it if you agree. Android shows its own confirmation. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- No backups or phone-to-phone copies of the app's data (play history, folder access). -->
     <application
         android:allowBackup="false"
@@ -85,6 +90,11 @@
         </receiver>
         <receiver
             android:name=".WidgetActionReceiver"
+            android:exported="false" />
+
+        <!-- Gets Android's answer when an update is being installed. -->
+        <receiver
+            android:name=".updater.InstallResultReceiver"
             android:exported="false" />
     </application>
 </manifest>
