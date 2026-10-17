@@ -47,6 +47,8 @@ sealed interface Screen {
     data object Settings : Screen
     /** Cut part of a song, to save as a new song or as a ringtone ([ringtone] picks that to start with). */
     data class Cut(val songId: String, val ringtone: Boolean) : Screen
+    /** Your listening: how much, and what most, this month, this year or ever. */
+    data object Recap : Screen
 }
 
 /** Playlists that fill themselves from what you play. */
@@ -88,7 +90,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     // ----- Navigation & UI -----
     val screens = mutableStateListOf<Screen>()
     var showPlayer by mutableStateOf(false)
-    var section by mutableStateOf(Section.HOME); private set
+    var section by mutableStateOf(Section.entries.firstOrNull { it.name == prefs.getString("startSection", null) } ?: Section.HOME); private set
     var libraryChip by mutableStateOf(
         LibraryChip.entries.firstOrNull { it.name == prefs.getString("chipName", null) } ?: LibraryChip.SONGS,
     ); private set
@@ -154,6 +156,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         boostPercent = Effects.boostPercent(p)
         boostAvailable = p.getBoolean(Effects.KEY_BOOST_AVAILABLE, true)
         evenVolume = p.getBoolean(Effects.KEY_EVEN_VOLUME, false)
+        autoplay = p.getBoolean(Effects.KEY_AUTOPLAY, false)
         evenVolumeNow = readEvenVolumeNow()
     }
 
@@ -789,6 +792,19 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun runBackup(force: Boolean): Boolean? {
         // Before the library is read (or without permission to read it) songs can't be described.
         if (loading || rawSongs.isEmpty()) return if (force) false else null
+        val result = backupLock.withLock {
+            val built = backupFiles(force) ?: return@withLock null
+            withContext(Dispatchers.IO) { backupStorage.writeAll(built.first, built.second, force) }
+        }
+        backupVersion++
+        return result
+    }
+
+    /**
+     * The backup file and a .m3u per playlist, as (path in the backup folder → text), with the
+     * texts to compare for "unchanged". Null if there's nothing worth backing up (unless [force]).
+     */
+    private suspend fun backupFiles(force: Boolean): Pair<Map<String, String>, Map<String, String>>? {
         val app = getApplication<Application>()
         val lists = playlists.items.toList()
         val recent = history
@@ -796,7 +812,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         val last = HashMap(lastPlayed)
         val edited = edits.all()
         val byId = rawSongs.associateBy { it.id }
-        val result = backupLock.withLock { withContext(Dispatchers.IO) {
+        return withContext(Dispatchers.IO) {
             val cache = RefCache.load(app)
             // Songs not on the phone right now (memory card out?) keep how they were last described.
             fun ref(id: String): SongRef? = byId[id]?.let { SongRef.of(it) }?.also { cache[id] = it } ?: cache[id]
@@ -810,13 +826,16 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
                 plays = counts.mapNotNull { (id, n) -> ref(id)?.let { BackupFile.Play(it, n, last[id] ?: 0L) } },
                 edits = edited.mapNotNull { (id, e) -> ref(id)?.let { it to e } },
                 settings = BackupSettings.snapshot(app),
+                listens = PlayLog.read(app).map { l ->
+                    BackupFile.Heard(l.at, ref(l.songId) ?: SongRef("", l.title, l.artist, l.album), l.ms)
+                },
             )
             if (contents.isEmpty && !force) return@withContext null
             val files = LinkedHashMap<String, String>()
             val sameAs = HashMap<String, String>()
             files[BackupFile.NAME] = BackupFile.write(contents)
             // The time it was made changes every time; only rewrite the file when the rest does.
-            sameAs[BackupFile.NAME] = BackupFile.write(BackupFile.Contents(0, contents.playlists, contents.liked, contents.history, contents.plays, contents.edits, contents.settings))
+            sameAs[BackupFile.NAME] = BackupFile.write(BackupFile.Contents(0, contents.playlists, contents.liked, contents.history, contents.plays, contents.edits, contents.settings, contents.listens))
             val m3u = listOf("Liked songs" to contents.liked).filter { it.second.isNotEmpty() } + contents.playlists
             for ((name, songs) in m3u) {
                 var file = "$PLAYLISTS_DIR/" + M3u.fileName(name)
@@ -826,10 +845,8 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
             }
             val keep = (lists.flatMap { it.songIds } + recent + counts.keys + edited.keys).toSet()
             RefCache.save(app, cache.filterKeys { it in keep })
-            backupStorage.writeAll(files, sameAs, force)
-        } }
-        backupVersion++
-        return result
+            files to sameAs
+        }
     }
 
     /** Reads the backup (or the playlist files) in a folder you picked, to show what it holds. */
@@ -882,6 +899,10 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         saveHistory()
         if (plan.edits.isNotEmpty()) publish(rawSongs)
         viewModelScope.launch {
+            if (plan.listens.isNotEmpty()) {
+                withContext(Dispatchers.IO) { PlayLog.addAll(app, plan.listens) }
+                refreshListens()
+            }
             // Keep backing up into the folder restored from, so there's one backup, not two.
             plan.adoptFolder?.let { folder -> backupLock.withLock { withContext(Dispatchers.IO) { backupStorage.adopt(folder) } } }
             backupVersion++
@@ -891,7 +912,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         val what = buildList {
             if (plan.playlists.isNotEmpty()) add(if (plan.playlists.size == 1) "“${plan.playlists[0].first}”" else "${plan.playlists.size} playlists")
             if (plan.liked.isNotEmpty()) add("${plan.liked.size} liked ${if (plan.liked.size == 1) "song" else "songs"}")
-            if (plan.plays.isNotEmpty()) add("play counts")
+            if (plan.plays.isNotEmpty() || plan.listens.isNotEmpty()) add("listening history")
             if (withSettings && plan.settings != null) add("settings")
         }
         val text = if (what.isEmpty()) "Nothing new to restore" else "Restored " + what.joinToString(", ").replace(Regex(", ([^,]*)$"), " and $1")
@@ -921,6 +942,178 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             messageChannel.trySend(if (ok) "Saved “${p.name}” as a playlist file" else "Couldn't save the playlist file")
+        }
+    }
+
+    // ----- Instant mix, similar artists, autoplay -----
+
+    var autoplay by mutableStateOf(effectsPrefs.getBoolean(Effects.KEY_AUTOPLAY, false)); private set
+
+    fun setAutoplayOn(on: Boolean) {
+        autoplay = on
+        effectsPrefs.edit().putBoolean(Effects.KEY_AUTOPLAY, on).apply()
+    }
+
+    private fun listeningSignals() = ListeningSignals(
+        playCounts = HashMap(playCounts),
+        playlists = playlists.items.map { it.songIds },
+        liked = playlists.liked?.songIds?.toSet().orEmpty(),
+        recent = history,
+    )
+
+    /** A queue of songs like [seed], starting with it. */
+    fun instantMix(seed: Song) {
+        val library = songs
+        val signals = listeningSignals()
+        viewModelScope.launch {
+            val mix = withContext(Dispatchers.Default) { Similar(library, signals).mix(listOf(seed), size = 49) }
+            play(listOf(seed) + mix, 0, from = "Instant mix · ${seed.title}")
+        }
+    }
+
+    /** A queue built around [seeds] (an artist's, album's or playlist's songs), including some of them. */
+    fun instantMix(name: String, seeds: List<Song>) {
+        if (seeds.isEmpty()) return
+        val library = songs
+        val signals = listeningSignals()
+        viewModelScope.launch {
+            val mix = withContext(Dispatchers.Default) {
+                Similar(library, signals).mix(seeds.shuffled().take(25), size = 50, includeSeeds = true)
+            }
+            if (mix.isEmpty()) messageChannel.trySend("Not enough songs for a mix yet")
+            else play(mix, 0, from = "$name mix")
+        }
+    }
+
+    /** Artists who go with [artist] (shared movies, music directors, duets, playlists). */
+    suspend fun similarArtists(artist: ArtistGroup): List<ArtistGroup> {
+        val library = songs
+        val signals = listeningSignals()
+        return withContext(Dispatchers.Default) { Similar(library, signals).similarArtists(artist, LibraryGrouping.artists(library)) }
+    }
+
+    // ----- Recap -----
+
+    /** Every listen recorded by the player, oldest first; read when Home or the recap is shown. */
+    var listens by mutableStateOf<List<Listen>>(emptyList()); private set
+
+    fun refreshListens() {
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            listens = withContext(Dispatchers.IO) { PlayLog.read(app) }
+        }
+    }
+
+    /** The tab the app opens on. */
+    var startSection by mutableStateOf(section); private set
+
+    fun chooseStartSection(s: Section) {
+        startSection = s
+        prefs.edit().putString("startSection", s.name).apply()
+    }
+
+    // ----- All songs in one zip (moving to a new phone) -----
+
+    /** Packing or unpacking in progress, for the progress dialog. */
+    var transfer by mutableStateOf<MusicZip.Progress?>(null); private set
+    /** Waiting for you to confirm packing: how many songs, how big, how much space is free. */
+    var zipPlan by mutableStateOf<MusicZip.Plan?>(null)
+    private var transferJob: Job? = null
+
+    fun prepareZip() {
+        if (loading || rawSongs.isEmpty()) {
+            messageChannel.trySend("Wait for your songs to load, then try again")
+            return
+        }
+        val songsNow = rawSongs
+        viewModelScope.launch {
+            zipPlan = withContext(Dispatchers.IO) { MusicZip.plan(getApplication(), songsNow) }
+        }
+    }
+
+    fun cancelTransfer() {
+        transferJob?.cancel()
+    }
+
+    /** Packs every song (and a fresh backup) into the zip file at [target]. */
+    fun packSongs(target: Uri) {
+        val plan = zipPlan ?: return
+        zipPlan = null
+        val app = getApplication<Application>()
+        transferJob = viewModelScope.launch {
+            transfer = MusicZip.Progress("Packing your songs", 0, plan.songs.size, 0, plan.totalBytes, "")
+            val backup = try {
+                backupLock.withLock { backupFiles(force = true) }?.first.orEmpty()
+            } catch (e: Exception) {
+                emptyMap()
+            }
+            fun removeUnfinished() = try {
+                android.provider.DocumentsContract.deleteDocument(app.contentResolver, target)
+            } catch (e: Exception) {
+                false
+            }
+            val packed = try {
+                withContext(Dispatchers.IO) { MusicZip.pack(app, plan, backup, target) { transfer = it } }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { removeUnfinished() }
+                transfer = null
+                messageChannel.trySend("Stopped. The unfinished zip was deleted.")
+                throw e
+            } catch (e: Exception) {
+                withContext(Dispatchers.IO) { removeUnfinished() }
+                transfer = null
+                messageChannel.trySend(
+                    if (MusicZip.freeBytes() in 0 until 50L * 1024 * 1024) "Not enough space to finish the zip. Free some space, or save it to a memory card or USB drive."
+                    else "Couldn't make the zip",
+                )
+                return@launch
+            }
+            transfer = null
+            val size = android.text.format.Formatter.formatShortFileSize(app, plan.totalBytes)
+            messageChannel.trySend(
+                "Packed ${songCount(packed)} ($size) with your playlists. Copy the zip to your new phone, " +
+                    "then use “Unpack songs from a zip” in Isaialai there.",
+            )
+        }
+    }
+
+    /** Puts the songs from a zip made by [packSongs] back in their folders, then offers its backup. */
+    fun unpackSongs(source: Uri) {
+        val app = getApplication<Application>()
+        val known = rawSongs.mapTo(HashSet()) { it.locationKey }
+        transferJob = viewModelScope.launch {
+            transfer = MusicZip.Progress("Unpacking songs", 0, -1, 0, 0, "")
+            val result = try {
+                withContext(Dispatchers.IO) { MusicZip.unpack(app, source, known) { transfer = it } }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                transfer = null
+                messageChannel.trySend("Stopped. The songs unpacked so far are kept; unpack the zip again to add the rest.")
+                refreshLibrary()
+                throw e
+            } catch (e: MusicZip.NotEnoughSpace) {
+                transfer = null
+                messageChannel.trySend("The phone is almost full, so unpacking stopped. Free some space, then unpack the zip again to add the rest.")
+                refreshLibrary()
+                return@launch
+            } catch (e: Exception) {
+                transfer = null
+                messageChannel.trySend("Couldn't read that zip")
+                return@launch
+            }
+            transfer = null
+            refreshLibrary()
+            libraryJob?.join()
+            messageChannel.trySend(
+                buildString {
+                    append("Added ${songCount(result.added)}")
+                    if (result.skipped > 0) append(" (${songCount(result.skipped)} already here)")
+                    if (result.failed > 0) append(". ${songCount(result.failed)} couldn't be saved")
+                },
+            )
+            val text = result.backupText ?: return@launch
+            val songsNow = rawSongs
+            val plan = withContext(Dispatchers.Default) { RestorePlan.fromBackupText(text, songsNow, "the zip") }
+            if (plan != null) restorePlan = plan
         }
     }
 }

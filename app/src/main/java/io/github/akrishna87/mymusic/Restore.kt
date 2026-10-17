@@ -22,6 +22,8 @@ class RestorePlan(
     val plays: List<Triple<String, Int, Long>>,
     val edits: List<Pair<String, SongEdits.Edit>>,
     val settings: JSONObject?,
+    /** Listens for the recap (songs no longer on the phone keep their names). */
+    val listens: List<Listen>,
     /** Songs in the playlists and liked songs that were found / aren't on this phone. */
     val found: Int,
     val missing: Int,
@@ -66,6 +68,10 @@ class RestorePlan(
             return if (parsed.isEmpty()) null else fromPlaylistFiles(parsed, library, where)
         }
 
+        /** The backup found inside a zip of songs (see [MusicZip]), or null if it isn't one. */
+        fun fromBackupText(text: String, library: List<Song>, source: String): RestorePlan? =
+            BackupFile.read(text)?.let { fromBackup(it, library, source, adopt = null) }
+
         /** Reads one picked file: an Isaialai backup, or a .m3u playlist. */
         fun fromFile(context: Context, uri: Uri, library: List<Song>): RestorePlan? {
             val text = BackupStorage.readText(context, uri) ?: return null
@@ -90,6 +96,9 @@ class RestorePlan(
                 plays = c.plays.mapNotNull { p -> id(p.song)?.let { Triple(it, p.count.coerceAtLeast(0), p.lastPlayed) } },
                 edits = c.edits.mapNotNull { (r, e) -> id(r)?.let { it to e } },
                 settings = c.settings,
+                listens = c.listens.map { h ->
+                    Listen(h.at, id(h.song) ?: "gone:${h.song.title}|${h.song.artist}", h.ms, h.song.title, h.song.artist, h.song.album)
+                },
                 found = found,
                 missing = core.size - found,
                 adoptFolder = adopt,
@@ -109,7 +118,7 @@ class RestorePlan(
                         )?.id.also { if (it == null) missing++ else found++ }
                 }.distinct()
             }
-            return RestorePlan(source, 0, lists, emptyList(), emptyList(), emptyList(), emptyList(), null, found, missing, adoptFolder = null)
+            return RestorePlan(source, 0, lists, emptyList(), emptyList(), emptyList(), emptyList(), null, emptyList(), found, missing, adoptFolder = null)
         }
     }
 }

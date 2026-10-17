@@ -24,6 +24,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
+/** The accent colour (buttons, highlights): its colour in the dark and light themes, and a second one for gradients. */
+enum class AccentColor(val label: String, val dark: Color, val dark2: Color, val light: Color, val light2: Color) {
+    CORAL("Coral", Color(0xFFFF7A59), Color(0xFF8E6BFF), Color(0xFFE2522F), Color(0xFF6A47E6)),
+    ROSE("Rose", Color(0xFFFF5C9A), Color(0xFFA06BFF), Color(0xFFD6336C), Color(0xFF7B47E6)),
+    RED("Red", Color(0xFFFF5A5A), Color(0xFFFF9A5A), Color(0xFFD32F2F), Color(0xFFE65A19)),
+    AMBER("Amber", Color(0xFFFFB020), Color(0xFFFF7A59), Color(0xFFB86E00), Color(0xFFD9532F)),
+    GREEN("Green", Color(0xFF5AD17A), Color(0xFF2EC4B6), Color(0xFF1F8F45), Color(0xFF0E8F84)),
+    TEAL("Teal", Color(0xFF2EC4B6), Color(0xFF5B8CFF), Color(0xFF0B8378), Color(0xFF3F6FE0)),
+    BLUE("Blue", Color(0xFF5B9DFF), Color(0xFF8E6BFF), Color(0xFF1E66D0), Color(0xFF5B47E6)),
+    VIOLET("Violet", Color(0xFFA584FF), Color(0xFFFF6FB1), Color(0xFF6A47E6), Color(0xFFC2337A)),
+}
+
 /** Dark, light, or follow the phone's setting. */
 enum class ThemeMode(val label: String) { DARK("Dark"), LIGHT("Light"), SYSTEM("Match phone") }
 
@@ -97,9 +109,13 @@ object Palette {
     val Field get() = colors.field
 }
 
-/** The colours for a theme, with accents taken from the wallpaper when [wallpaper] is on (Android 12+). */
-fun appColors(context: Context, dark: Boolean, wallpaper: Boolean): AppColors {
-    val base = if (dark) DarkAppColors else LightAppColors
+/**
+ * The colours for a theme, in the accent colour you picked, or with accents taken from the
+ * wallpaper when [wallpaper] is on (Android 12+).
+ */
+fun appColors(context: Context, dark: Boolean, wallpaper: Boolean, accent: AccentColor = AccentColor.CORAL): AppColors {
+    val plain = if (dark) DarkAppColors else LightAppColors
+    val base = plain.copy(coral = if (dark) accent.dark else accent.light, violet = if (dark) accent.dark2 else accent.light2)
     if (!wallpaper || Build.VERSION.SDK_INT < 31) return base
     val scheme = if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
     return base.copy(coral = scheme.primary, violet = scheme.tertiary, onAccent = scheme.onPrimary)
@@ -177,14 +193,19 @@ private val AppTypography = Typography().let { t ->
 val BrandGradient get() = Brush.linearGradient(listOf(Palette.Violet, Palette.Coral))
 
 @Composable
-fun MyMusicTheme(mode: ThemeMode = ThemeMode.DARK, wallpaperColors: Boolean = false, content: @Composable () -> Unit) {
+fun MyMusicTheme(
+    mode: ThemeMode = ThemeMode.DARK,
+    wallpaperColors: Boolean = false,
+    accent: AccentColor = AccentColor.CORAL,
+    content: @Composable () -> Unit,
+) {
     val dark = when (mode) {
         ThemeMode.DARK -> true
         ThemeMode.LIGHT -> false
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
     }
     val context = LocalContext.current
-    val colors = remember(dark, wallpaperColors) { appColors(context, dark, wallpaperColors) }
+    val colors = remember(dark, wallpaperColors, accent) { appColors(context, dark, wallpaperColors, accent) }
     SideEffect { if (Palette.colors != colors) Palette.colors = colors }
     MaterialTheme(colorScheme = colors.scheme(), typography = AppTypography) {
         // Text and icons default to black outside a Surface; use the theme's text colour instead.
@@ -207,6 +228,13 @@ object ThemeSettings {
     /** Show the player over the lock screen when the phone is locked with Isaialai open. */
     var lockScreenPlayer by mutableStateOf(true)
         private set
+    var accent by mutableStateOf(AccentColor.CORAL)
+        private set
+    /** Home's rows, in the order you chose. */
+    var homeOrder by mutableStateOf(HomeSection.entries.toList())
+        private set
+    var homeHidden by mutableStateOf(emptySet<HomeSection>())
+        private set
     private var loaded = false
 
     private fun prefs(context: Context) = context.getSharedPreferences("ui", Context.MODE_PRIVATE)
@@ -218,6 +246,25 @@ object ThemeSettings {
         mode = ThemeMode.entries.firstOrNull { it.name == p.getString("theme", null) } ?: ThemeMode.DARK
         wallpaperColors = p.getBoolean("wallpaperColors", false)
         lockScreenPlayer = p.getBoolean("lockScreenPlayer", true)
+        accent = AccentColor.entries.firstOrNull { it.name == p.getString("accent", null) } ?: AccentColor.CORAL
+        val saved = p.getString("homeSections", "").orEmpty().split(',').mapNotNull { n -> HomeSection.entries.firstOrNull { it.name == n } }
+        // Rows added in later versions go where they are by default.
+        homeOrder = saved.distinct() + HomeSection.entries.filter { it !in saved }
+        homeHidden = p.getString("homeHidden", "").orEmpty().split(',').mapNotNullTo(HashSet()) { n -> HomeSection.entries.firstOrNull { it.name == n } }
+    }
+
+    fun setAccent(context: Context, color: AccentColor) {
+        accent = color
+        prefs(context).edit().putString("accent", color.name).apply()
+    }
+
+    fun setHomeSections(context: Context, order: List<HomeSection>, hidden: Set<HomeSection>) {
+        homeOrder = order
+        homeHidden = hidden
+        prefs(context).edit()
+            .putString("homeSections", order.joinToString(",") { it.name })
+            .putString("homeHidden", hidden.joinToString(",") { it.name })
+            .apply()
     }
 
     /** Reads the choice again (after restoring a backup). */

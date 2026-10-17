@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Favorite
@@ -41,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.akrishna87.mymusic.AlbumGroup
+import io.github.akrishna87.mymusic.ArtistGroup
 import io.github.akrishna87.mymusic.FolderLevel
 import io.github.akrishna87.mymusic.SmartPlaylist
 import io.github.akrishna87.mymusic.LibraryGrouping
@@ -113,7 +115,7 @@ private fun detailFor(vm: MusicViewModel, screen: Screen): DetailData? {
                 DetailData(DetailKind.SMART, screen.kind.label, vm.smartSongs(screen.kind, songs), smart = screen.kind)
             }
         }
-        Screen.Duplicates, Screen.Settings, is Screen.Cut -> null
+        Screen.Duplicates, Screen.Settings, is Screen.Cut, Screen.Recap -> null
         is Screen.PlaylistDetail -> {
             val playlist = vm.playlists.get(screen.id)
             val byId = vm.songsById
@@ -247,6 +249,9 @@ fun DetailScreen(vm: MusicViewModel, screen: Screen) {
                         }
                     }
                 }
+                if (detail.kind == DetailKind.ARTIST && detail.songs.isNotEmpty()) {
+                    item(key = "similar-artists") { SimilarArtists(vm, ArtistGroup(detail.title, detail.songs)) }
+                }
             }
         }
 
@@ -277,6 +282,16 @@ fun DetailScreen(vm: MusicViewModel, screen: Screen) {
                 IconButton(onClick = { vm.deletePlaylist(id) }) { Icon(Icons.Rounded.Delete, "Delete playlist") }
             }
         }
+    }
+}
+
+/** Artists who go with this one: shared movies, music directors, duets and playlists. */
+@Composable
+private fun SimilarArtists(vm: MusicViewModel, artist: ArtistGroup) {
+    val songs = vm.songs
+    val similar by produceState(emptyList<ArtistGroup>(), artist.name, songs) { value = vm.similarArtists(artist) }
+    CardRow("Similar artists", similar, { it.name.lowercase() }) { a ->
+        ArtistBubble(a, onClick = { vm.open(Screen.Artist(a.name)) })
     }
 }
 
@@ -313,6 +328,11 @@ private fun Hero(vm: MusicViewModel, detail: DetailData, color: Color) {
                 enabled = detail.songs.isNotEmpty(),
             ) {
                 Icon(Icons.Rounded.Shuffle, "Shuffle", tint = Palette.SubText, modifier = Modifier.size(28.dp))
+            }
+            if (detail.songs.isNotEmpty()) {
+                IconButton(onClick = { vm.instantMix(detail.title, detail.songs) }) {
+                    Icon(Icons.Rounded.AutoAwesome, "Instant mix", tint = Palette.SubText, modifier = Modifier.size(26.dp))
+                }
             }
             Spacer(Modifier.weight(1f))
             // Pause/resume if this list is what's playing; otherwise start it.

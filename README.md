@@ -46,6 +46,31 @@ A one-line-per-feature list, ready to share, is in [FEATURES.md](FEATURES.md).
   (Ilaiyaraaja, A.R. Rahman, Anirudh…). Each music director's page shows
   their movies and albums, newest first, then all their songs. A song's ⋮
   menu has **Go to music director**, and Search finds them too.
+- **Instant mix**: a song's ⋮ menu → **Instant mix** plays that song, then
+  songs like it: same singers or music director, the same movie and era,
+  songs you keep in the same playlists, with your liked and most played songs
+  ranked higher and ones you just heard pushed back. It mixes it up so it
+  isn't one movie after another. The ✦ button on an album, artist, music
+  director or playlist page makes a mix around all of its songs, and Home's
+  **Mixes for you** has ready-made ones (a Daily mix from what you've been
+  playing, and mixes for your top artists and music directors). All worked
+  out on the phone; no internet.
+- **Similar artists** at the bottom of each artist page: singers who sang in
+  the same movies or for the same music directors, duet partners, and artists
+  you keep in the same playlists.
+- **Autoplay** (Settings → Playback, off unless you turn it on): when the last
+  song in the queue starts, songs like the last few you played are added after
+  it, so the music keeps going (not while repeat is on).
+- **Your recap** (Home, or Library ⋮ → Your recap): how much you listened
+  this month, last month, this year or ever; your top songs, artists, music
+  directors and movies; the days and time of day you listen most; and a button
+  to play your top songs. Every song played for at least 30 seconds (or half
+  of a short one) counts, including with the app closed. It's kept on the
+  phone and included in the backup.
+- **Make it yours** (Settings): pick an **accent colour** (coral, rose, red,
+  amber, green, teal, blue or violet), switch Home's rows on or off and put
+  them in any order, and choose whether the app opens on Home, Search or
+  Library.
 - **Smart playlists** under Playlists fill themselves: **Most played**,
   **Recently added** (last 30 days), **Not played in a while** (played
   before, but not in 2 months) and **Never played**.
@@ -130,6 +155,16 @@ A one-line-per-feature list, ready to share, is in [FEATURES.md](FEATURES.md).
     anything changes. Restoring only adds: nothing on the phone is deleted,
     and restoring again later (after copying more music) fills in the rest.
     Backups then carry on in that same folder.
+  - **Move all your songs in one zip**: **Pack all songs into a zip…** puts
+    every song in one .zip file, each in its own folder (`Music/Hindi/…`),
+    together with a fresh backup of your playlists, liked songs and settings.
+    It shows how big the zip will be and how much space is free first (songs
+    are already compressed, so the zip is about as big as the songs); save it
+    to Download, a memory card or a USB drive. On the new phone, **Unpack
+    songs from a zip…** puts each song back in its folder (songs already there
+    are skipped, so unpacking again after stopping just adds the rest), then
+    offers to restore the playlists from the backup inside. Keep Isaialai
+    open while it runs; the screen stays on.
   - **Import a playlist file (.m3u)**: add a playlist made by another app,
     or one sent to you. Songs are found by their path (in any style: phone,
     memory card, even a computer's `C:\Music\…`), then by file name, then by

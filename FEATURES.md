@@ -3,10 +3,15 @@
 🎵 Plays the songs already on your phone, straight from storage. No ads, no account, and it only goes online if you tap Check for updates.
 📂 Finds songs in every folder, even ones other players miss (WhatsApp, Telegram, downloads).
 🗂️ Browse your folders like a file manager.
-🏠 Home shows Jump back in, Recently added, Your artists, On repeat and Rediscover.
+🏠 Home shows Jump back in, Mixes for you, Your recap, Recently added, Your artists, On repeat and Rediscover.
 🔍 Search songs, artists, albums, music directors and folders as you type.
 🎼 Browse by music director (Ilaiyaraaja, A.R. Rahman, Anirudh…) with all their movies.
 ✨ Smart playlists: Most played, Recently added, Not played in a while, Never played.
+🪄 Instant mix: tap any song (or artist, movie, music director) for a mix of songs like it.
+🎙️ Similar artists on every artist page, and ready-made mixes on Home.
+♾️ Autoplay: when the queue ends, keeps playing songs like the last ones.
+📊 Your recap: listening time, top songs, artists, music directors and movies by month or year.
+🎨 Pick your accent colour, rearrange or hide Home's rows, and choose the opening tab.
 ❤️ Liked songs and your own playlists, which you can reorder by dragging.
 📝 Lyrics that scroll along with the song (tap a line to jump there).
 🎚️ Equaliser with presets and bass boost.
@@ -32,6 +37,7 @@
 🧹 Duplicate finder to clean up songs saved twice.
 💾 Automatic backup of playlists, likes, play counts and settings to a folder in Download, with no internet.
 📲 Move to a new phone by copying that folder with any file manager, then tap Restore.
+🗜️ Pack all your songs (and playlists) into one zip, and unpack it on your new phone.
 📄 Playlists saved as .m3u files that other music apps can open; import .m3u playlists from other apps.
 🛡️ Private and secure: online only when you tap Check for updates, nothing about you is sent, and updates must be signed with the app's own key.
 

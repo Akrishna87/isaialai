@@ -194,6 +194,7 @@ fun SongMenu(
         MenuItem("Play next", Icons.Rounded.SkipNext) { onDismiss(); vm.enqueue(song, next = true) }
         MenuItem("Add to queue", Icons.Rounded.AddToQueue) { onDismiss(); vm.enqueue(song, next = false) }
         MenuItem("Add to playlist…", Icons.AutoMirrored.Rounded.PlaylistAdd) { onDismiss(); vm.playlistPickerFor = song }
+        MenuItem("Instant mix", Icons.Rounded.AutoAwesome) { onDismiss(); vm.instantMix(song) }
         if (AlbumNames.hasAlbum(song)) {
             MenuItem("Go to album", Icons.Rounded.Album) { onDismiss(); vm.open(Screen.Album(song.albumKey)) }
         }

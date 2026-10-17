@@ -52,12 +52,6 @@ scroll_down() { # swipe up on the middle of the screen
   adb shell input swipe $((w / 2)) $((h * 3 / 4)) $((w / 2)) $((h / 4)) 300
   sleep 1
 }
-scroll_step() { # drag the list up by a third of the screen and let go without a fling, so no row is skipped
-  local size w h x
-  size=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); w=${size%x*}; h=${size#*x}; x=$((w / 2))
-  adb shell "input motionevent DOWN $x $((h * 65 / 100)); input motionevent MOVE $x $((h * 55 / 100)); input motionevent MOVE $x $((h * 45 / 100)); input motionevent MOVE $x $((h * 35 / 100)); sleep 0.4; input motionevent UP $x $((h * 35 / 100))"
-  sleep 1
-}
 playing() { session; grep -Eq "\{state=(PLAYING|3)" "$OUT/session.txt"; }
 menu_item() { # menu_item <dump> <song> <item>: open a song's ⋮ menu and tap an item, scrolling the menu if needed
   local i xy
@@ -71,11 +65,29 @@ menu_item() { # menu_item <dump> <song> <item>: open a song's ⋮ menu and tap a
   done
   fail "the song menu has no '$3'"
 }
+scroll_step() { # drag the list up by a third of the screen and let go without a fling, so no row is skipped
+  local size w h x
+  size=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); w=${size%x*}; h=${size#*x}; x=$((w / 2))
+  adb shell "input motionevent DOWN $x $((h * 65 / 100)); input motionevent MOVE $x $((h * 55 / 100)); input motionevent MOVE $x $((h * 45 / 100)); input motionevent MOVE $x $((h * 35 / 100)); sleep 0.4; input motionevent UP $x $((h * 35 / 100))"
+  sleep 1
+}
+tap_here() { # tap_here <text>: tap the smallest element called <text> on screen, nudging it up from under the mini player
+  local xy ty i
+  for i in 1 2 3; do
+    dump here
+    xy=$(python3 "$HERE/find_text.py" "$OUT/here.xml" "$1" smallest) || fail "'$1' isn't on screen"
+    read -r _ ty <<<"$xy"
+    if [ "$ty" -lt $((H * 72 / 100)) ]; then adb shell input tap $xy; sleep 1; return 0; fi
+    adb shell "input motionevent DOWN $((W / 2)) $((H * 60 / 100)); input motionevent MOVE $((W / 2)) $((H * 45 / 100)); input motionevent MOVE $((W / 2)) $((H * 35 / 100)); sleep 0.4; input motionevent UP $((W / 2)) $((H * 35 / 100))"
+    sleep 1
+  done
+  fail "'$1' stays under the mini player"
+}
 tap_clear() { # tap_clear <text>: scroll until <text> is above the mini player, then tap it
   local i b x1 y1 x2 y2 h density limit home
   h=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1); h=${h#*x}
   density=$(adb shell wm density | grep -o '[0-9]*' | tail -1)
-  for i in 1 2 3 4 5; do
+  for i in 1 2 3 4 5 6 7 8 9 10; do
     dump clear
     # The mini player sits just above the tab bar: about 90 dp above the "Home" tab's label.
     limit=$((h * 70 / 100))
@@ -87,7 +99,7 @@ tap_clear() { # tap_clear <text>: scroll until <text> is above the mini player, 
       read -r x1 y1 x2 y2 <<<"$b"
       if [ $(((y1 + y2) / 2)) -lt "$limit" ]; then adb shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2)); return 0; fi
     fi
-    scroll_down
+    scroll_step # no fling, so it can't shoot past
   done
   fail "couldn't get '$1' clear of the mini player to tap it"
 }
@@ -675,16 +687,16 @@ sleep 1
 dump playlists2
 tap playlists2 "Never played"
 sleep 2
-# The list is longer than the screen and which songs are in it varies (the shuffle tests play random
-# songs), so a row can be cut off at the edge. Look through it a third of a screen at a time.
-found_twin=no
-for _ in 1 2 3 4 5 6; do
+# The list animates when the song playing now drops out of it; read it again until it settles.
+# (The row's ⋮ button names the song too: the dump sometimes leaves out the titles of the last rows.)
+for _ in 1 2 3; do
   dump never-played
-  grep -q 'text="Smoke Song 1"' "$OUT/never-played.xml" && fail "Never played lists a song that was played"
-  if grep -q 'text="Twin Song"' "$OUT/never-played.xml"; then found_twin=yes; break; fi
-  scroll_step
+  grep -q 'text="Twin Song"\|content-desc="More options for Twin Song"' "$OUT/never-played.xml" && break
+  sleep 2
 done
-[ "$found_twin" = yes ] || fail "Never played doesn't list a song that was never played"
+grep -q 'text="Twin Song"\|content-desc="More options for Twin Song"' "$OUT/never-played.xml" \
+  || fail "Never played doesn't list a song that was never played"
+grep -q 'text="Smoke Song 1"' "$OUT/never-played.xml" && fail "Never played lists a song that was played"
 echo "PASS: smart playlists fill themselves"
 adb shell input keyevent KEYCODE_BACK
 sleep 1
@@ -728,7 +740,7 @@ open_settings() {
 open_settings
 dump settings
 shot 22-settings
-tap settings "5 s" # crossfade
+tap_clear "5 s" # crossfade
 sleep 1
 dump settings-xfade
 grep -q 'Crossfade: 5 s' "$OUT/settings-xfade.xml" || fail "choosing a 5 s crossfade didn't stick"
@@ -765,12 +777,10 @@ dump songs-loud
 tap songs-loud "Loud Song"
 sleep 6 # long enough to measure it
 open_settings
-# The level line is under Even volume. Drag a third of a screen at a time, without a fling: the
-# Settings list is long, and a fling can carry the line past the screen between two dumps.
-for _ in 1 2 3 4 5 6 7 8; do
+for _ in 1 2 3; do
+  scroll_down # the level line is under Even volume, near the bottom
   dump settings-loud
   grep -q "Now playing" "$OUT/settings-loud.xml" && break
-  scroll_step
 done
 shot 23-even-volume
 echo "Even volume line: $(grep -o 'Now playing[^"]*' "$OUT/settings-loud.xml" || echo '(none)')"
@@ -1270,6 +1280,234 @@ go_library() {
   sleep 2
 }
 
+switch_state() { # switch_state <dump> <label>: "on"/"off" for the switch row labelled <label>
+  python3 - "$OUT/$1.xml" "$2" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+nodes = list(ET.parse(sys.argv[1]).iter("node"))
+box = lambda n: [int(v) for v in re.findall(r"\d+", n.get("bounds", "[0,0][0,0]"))]
+label = next((n for n in nodes if sys.argv[2] in (n.get("text"), n.get("content-desc"))), None)
+if label is None: print("not on screen"); sys.exit()
+x1, y1, x2, y2 = box(label); cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+for n in nodes:
+    a1, b1, a2, b2 = box(n)
+    if n.get("checkable") == "true" and a1 <= cx <= a2 and b1 <= cy <= b2:
+        print("on" if n.get("checked") == "true" else "off"); sys.exit()
+print("unknown")
+PY
+}
+player_set() { # player_set <dump>: in the full player, turn shuffle and repeat off
+  local i
+  for i in 1 2 3; do
+    dump "$1"
+    if grep -q 'content-desc="Shuffle on"' "$OUT/$1.xml"; then tap "$1" "Shuffle on"; sleep 2; continue; fi
+    if grep -q 'content-desc="Repeating all"' "$OUT/$1.xml"; then tap "$1" "Repeating all"; sleep 1; continue; fi
+    if grep -q 'content-desc="Repeating this song"' "$OUT/$1.xml"; then tap "$1" "Repeating this song"; sleep 1; continue; fi
+    return 0
+  done
+}
+
+echo "--- Instant mix"
+fresh_start
+go_library
+chip "Songs"
+sleep 2
+on_screen "More options for Tune 05"
+menu_item on-screen "Tune 05" "Instant mix"
+sleep 5
+playing || fail "Instant mix didn't start playing"
+grep -q "Tune 05" "$OUT/session.txt" || fail "Instant mix didn't start with the song it was made from"
+dump mix-mini
+tap mix-mini "Tune 05" last # open the full player
+sleep 3
+dump mix-player
+grep -q "Instant mix · Tune 05" "$OUT/mix-player.xml" || fail "the player doesn't say it's playing an Instant mix"
+player_set mix-player
+tap mix-player "Show up next"
+sleep 2
+dump mix-queue
+shot 60-instant-mix
+python3 "$HERE/up_next.py" "$OUT/mix-queue.xml" "Tune 05" > "$OUT/mix-queue.txt" || fail "couldn't read Up next"
+echo "Instant mix after Tune 05:"; head -8 "$OUT/mix-queue.txt"
+[ "$(wc -l < "$OUT/mix-queue.txt")" -ge 4 ] || fail "the Instant mix has hardly any songs"
+grep -qx "Tune 05" "$OUT/mix-queue.txt" && fail "the Instant mix plays its own song again"
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+echo "PASS: Instant mix plays a song, then songs like it"
+
+echo "--- Autoplay: similar songs after the last song in the queue"
+fresh_start
+go_library
+open_settings
+tap_clear "Autoplay"
+sleep 1
+dump autoplay-on
+[ "$(switch_state autoplay-on Autoplay)" = on ] || fail "the Autoplay switch didn't turn on"
+adb shell input keyevent KEYCODE_BACK
+sleep 2
+chip "Albums"
+sleep 2
+on_screen "Shuffle Album"
+tap on-screen "Shuffle Album"
+sleep 3
+on_screen "Tune 12"
+tap on-screen "Tune 12" # the album's last song
+sleep 4
+dump autoplay-mini
+tap autoplay-mini "Tune 12" last
+sleep 3
+player_set autoplay-player
+sleep 4 # let Autoplay pick the songs
+tap autoplay-player "Show up next"
+sleep 2
+dump autoplay-queue
+shot 61-autoplay
+# Every Tune is already in the queue, so Autoplay adds other songs: list every song title in Up next.
+python3 - "$OUT/autoplay-queue.xml" "Tune 12" > "$OUT/autoplay-queue.txt" <<'PY' || true
+import re, sys, xml.etree.ElementTree as ET
+texts = [n.get("text") or "" for n in ET.parse(sys.argv[1]).iter("node")]
+if "Up next" in texts:
+    artists = {"CI Band", "Shuffle Band", "Twin Band", "Loud Band", "Hidden Band", "Download Band", "Unknown artist"}
+    for t in texts[texts.index("Up next") + 1:]:
+        if t and t != sys.argv[2] and t not in artists and not t.startswith("Drag ") and not re.fullmatch(r"\d+:\d\d|[\d.]+×", t):
+            print(t)
+PY
+echo "Up next after the album's last song:"; head -8 "$OUT/autoplay-queue.txt"
+grep -q "Nothing after this song" "$OUT/autoplay-queue.xml" && fail "Autoplay didn't add songs after the last one"
+[ "$(wc -l < "$OUT/autoplay-queue.txt")" -ge 4 ] || fail "Autoplay added hardly any songs"
+adb shell input keyevent KEYCODE_BACK
+sleep 1
+echo "PASS: Autoplay keeps the music going after the last song"
+
+echo "--- Recap"
+fresh_start
+go_library
+chip "Songs"
+sleep 2
+on_screen "Tune 01"
+tap on-screen "Tune 01"
+sleep 3
+playing || fail "Tune 01 didn't start"
+sleep 33 # a listen counts after 30 seconds
+adb shell input keyevent KEYCODE_MEDIA_NEXT
+sleep 3
+dump recap-menu
+tap recap-menu "More options"
+sleep 1
+dump recap-menu2
+tap recap-menu2 "Your recap"
+sleep 3
+dump recap
+shot 62-recap
+grep -q "of music" "$OUT/recap.xml" || fail "the recap screen didn't open"
+grep -q "Top songs" "$OUT/recap.xml" || fail "the recap has no top songs after listening"
+grep -q 'text="Tune 01"' "$OUT/recap.xml" || fail "the song just listened to isn't in the recap"
+tap recap "All time"
+sleep 2
+dump recap-all
+grep -q 'text="Tune 01"' "$OUT/recap-all.xml" || fail "All time doesn't include this month's listening"
+adb shell input keyevent KEYCODE_BACK
+sleep 2
+dump recap-home
+tap recap-home "Home" exact
+sleep 3
+on_screen "See your recap ›"
+grep -q "so far" "$OUT/on-screen.xml" || fail "Home's recap card doesn't show this month"
+echo "PASS: the recap counts what you listen to, with top songs, and Home shows this month"
+
+start_chip() { # start_chip <Home|Search|Library>: tap that chip under "Open the app on" (not the tab bar's)
+  local i xy
+  # From the top of Settings, scroll down to the chips.
+  for _ in 1 2 3 4 5; do adb shell input swipe $((W / 2)) $((H * 30 / 100)) $((W / 2)) $((H * 80 / 100)) 150; done
+  sleep 1
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    dump start-chip
+    if xy=$(python3 - "$OUT/start-chip.xml" "$1" "$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -1)" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+limit = int(sys.argv[3].split("x")[1]) * 70 // 100 # above the mini player
+seen = False
+for n in ET.parse(sys.argv[1]).iter("node"):
+    t = n.get("text") or ""
+    if t == "Open the app on": seen = True
+    elif seen and t == sys.argv[2]:
+        x1, y1, x2, y2 = map(int, re.findall(r"\d+", n.get("bounds")))
+        if (y1 + y2) // 2 < limit: print((x1 + x2) // 2, (y1 + y2) // 2); sys.exit()
+        break
+sys.exit(1)
+PY
+    ); then adb shell input tap $xy; return 0; fi
+    scroll_step
+  done
+  fail "couldn't find the '$1' chip under 'Open the app on'"
+}
+
+echo "--- App customisation: accent colour, Home rows, start tab"
+fresh_start
+go_library
+open_settings
+dump accent-before
+# The switch row is the checkable element around the "Player on the lock screen" title.
+read -r X1 Y1 X2 Y2 < <(python3 - "$OUT/accent-before.xml" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+nodes = list(ET.parse(sys.argv[1]).iter("node"))
+box = lambda n: [int(v) for v in re.findall(r"\d+", n.get("bounds", "[0,0][0,0]"))]
+label = next(n for n in nodes if n.get("text") == "Player on the lock screen")
+x1, y1, x2, y2 = box(label); cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+row = next(n for n in nodes if n.get("checkable") == "true" and box(n)[0] <= cx <= box(n)[2] and box(n)[1] <= cy <= box(n)[3])
+print(*box(row))
+PY
+) || fail "couldn't find the lock-screen player switch"
+DENS=$(adb shell wm density | grep -o '[0-9]*' | tail -1)
+SX=$((X2 - 42 * DENS / 160)); SY=$(((Y1 + Y2) / 2))
+read -r R0 G0 B0 < <(adb exec-out screencap | python3 "$HERE/pixel.py" $SX $SY)
+echo "switch colour with the coral accent: $R0 $G0 $B0"
+tap accent-before "Accent Blue"
+sleep 2
+read -r R1 G1 B1 < <(adb exec-out screencap | python3 "$HERE/pixel.py" $SX $SY)
+echo "switch colour with the blue accent: $R1 $G1 $B1"
+shot 63-accent-blue
+[ "$R0" -gt "$B0" ] && [ "$B1" -gt "$R1" ] || fail "choosing the blue accent didn't change the app's accent colour"
+dump accent-after
+tap accent-after "Accent Coral"
+sleep 1
+# Bring "Open the app on" (the top of the Home screen settings) near the top of the screen.
+on_screen "Open the app on"
+for _ in 1 2 3; do
+  dump home-rows
+  read -r _ oy < <(python3 "$HERE/find_text.py" "$OUT/home-rows.xml" "Open the app on" exact) || break
+  [ "$oy" -lt $((H * 16 / 100)) ] && break
+  # Drag the list up by exactly the distance to bring it to 12% from the top, without a fling.
+  d=$((oy - H * 12 / 100)); [ "$d" -gt $((H * 50 / 100)) ] && d=$((H * 50 / 100))
+  adb shell "input motionevent DOWN $((W / 2)) $((H * 65 / 100)); input motionevent MOVE $((W / 2)) $((H * 65 / 100 - d / 2)); input motionevent MOVE $((W / 2)) $((H * 65 / 100 - d)); sleep 0.4; input motionevent UP $((W / 2)) $((H * 65 / 100 - d))"
+  sleep 1
+done
+shot 65-home-rows-settings
+tap_here "Your artists" # the row's switch
+dump home-rows-after
+[ "$(switch_state home-rows-after "Your artists")" = off ] || fail "the 'Your artists' switch didn't turn off"
+for _ in 1 2 3 4; do tap_here "Move Your recap up"; done
+start_chip "Library"
+sleep 1
+fresh_start
+dump start-library
+grep -q 'text="Your Library"' "$OUT/start-library.xml" || fail "the app didn't open on Library"
+tap start-library "Home" exact
+sleep 3
+dump custom-home
+shot 64-custom-home
+grep -q "See your recap ›" "$OUT/custom-home.xml" || fail "moving Your recap to the top of Home didn't work"
+for _ in 1 2 3 4 5; do
+  grep -q 'text="Your artists"' "$OUT/custom-home.xml" && fail "the hidden 'Your artists' row is still on Home"
+  scroll_down
+  dump custom-home
+done
+go_library
+open_settings
+on_screen "Reset Home"
+tap_here "Reset Home"
+start_chip "Home"
+sleep 1
+echo "PASS: accent colour, Home's rows (hide, reorder) and the start tab can be changed"
+
 echo "--- Importing a playlist file made by another app"
 # Different path styles, an internet stream (skipped), a moved file found by its tags, and a
 # song that isn't on the phone.
@@ -1278,7 +1516,8 @@ adb push "$OUT/Road Trip.m3u" "/sdcard/Download/Road Trip.m3u" > /dev/null
 fresh_start
 go_library
 open_settings
-tap_clear "Import a playlist file (.m3u)"
+on_screen "Import a playlist file (.m3u)"
+tap_here "Import a playlist file (.m3u)"
 sleep 4
 dump file-picker
 if ! python3 "$HERE/find_text.py" "$OUT/file-picker.xml" "Road Trip.m3u" > /dev/null 2>&1; then
@@ -1314,6 +1553,46 @@ echo "imported playlist: $ROAD"
 [ "$ROAD" = "Tune 05 Tune 07 Smoke Song 3" ] || fail "the imported playlist doesn't have the right songs in order"
 echo "PASS: a .m3u playlist from another app can be imported (paths in any style, missing songs reported)"
 
+echo "--- Packing all songs into one zip"
+fresh_start
+go_library
+open_settings
+on_screen "Pack all songs into a zip…"
+tap_here "Pack all songs into a zip…"
+sleep 3
+dump zip-ask
+shot 70-zip-ask
+grep -q "Pack all songs into a zip?" "$OUT/zip-ask.xml" || fail "packing songs didn't ask first"
+grep -q "[0-9] songs, about " "$OUT/zip-ask.xml" || fail "the zip dialog doesn't say how many songs and how big"
+tap zip-ask "Choose where to save" exact
+sleep 4
+dump zip-save
+shot 71-zip-picker
+tap zip-save "Save" exact
+ZIP=""
+for _ in $(seq 1 40); do
+  sleep 2
+  dump zip-progress
+  grep -q "Packing your songs" "$OUT/zip-progress.xml" && continue
+  ZIP=$(adb shell ls /sdcard/Download | tr -d '\r' | grep "^Isaialai music .*\.zip$" | head -1 || true)
+  [ -n "$ZIP" ] && break
+done
+[ -n "$ZIP" ] || fail "no 'Isaialai music … .zip' was saved in Download"
+adb pull "/sdcard/Download/$ZIP" "$OUT/music.zip" > /dev/null
+python3 - "$OUT/music.zip" <<'PY' || fail "the songs zip isn't right"
+import sys, zipfile
+z = zipfile.ZipFile(sys.argv[1])
+assert z.testzip() is None, "a damaged entry"
+names = z.namelist()
+songs = [n for n in names if n.lower().endswith((".mp3", ".m4a"))]
+print(len(songs), "songs in the zip, e.g.", songs[:4])
+for want in ["Music/ShuffleTest/tune01.mp3", "Music/SmokeTest/song1.mp3", "Download/Isaialai/Isaialai backup.json", "Download/Isaialai/Playlists/Order Test.m3u"]:
+    assert want in names, "missing " + want
+assert len(songs) >= 20, "too few songs"
+assert z.getinfo("Music/ShuffleTest/tune01.mp3").file_size > 100000
+PY
+echo "PASS: every song (with its folder) and the backup go into one zip"
+
 echo "--- Restoring after reinstalling (or on a new phone)"
 for _ in $(seq 1 15); do adb shell "ls '$BK/Playlists/Road Trip.m3u'" > /dev/null 2>&1 && break; sleep 2; done
 adb shell "ls '$BK/Playlists/Road Trip.m3u'" > /dev/null 2>&1 || fail "the imported playlist wasn't added to the backup"
@@ -1327,7 +1606,8 @@ sleep 2
 dump wiped
 grep -q 'text="Order Test"' "$OUT/wiped.xml" && fail "the app's data wasn't cleared"
 open_settings
-tap_clear "Restore from backup"
+on_screen "Restore from backup"
+tap_here "Restore from backup"
 sleep 2
 dump restore-explain
 tap restore-explain "Choose folder"
@@ -1367,12 +1647,78 @@ tap on-screen "Liked songs"
 sleep 3
 dump restored-liked
 grep -q "Smoke Song 1" "$OUT/restored-liked.xml" || fail "liked songs weren't restored"
+adb shell input keyevent KEYCODE_BACK
+sleep 2
+dump restored-menu
+tap restored-menu "More options"
+sleep 1
+dump restored-menu2
+tap restored-menu2 "Your recap"
+sleep 3
+dump restored-recap
+grep -q 'text="Tune 01"' "$OUT/restored-recap.xml" || fail "the recap's listening history wasn't restored"
+adb shell input keyevent KEYCODE_BACK
+sleep 1
 # Backups now carry on in the restored folder: no "(1)" copies next to the old files.
 sleep 8
 adb shell "ls '$BK' '$BK/Playlists'" > "$OUT/backup-files.txt"
 cat "$OUT/backup-files.txt"
 grep -q "(1)\|(2)" "$OUT/backup-files.txt" && fail "restoring left duplicate backup files"
 echo "PASS: after reinstalling, playlists, liked songs and the rest come back from the Isaialai folder"
+
+echo "--- New phone: unpack the songs zip, then restore from the backup inside it"
+adb shell rm -rf /sdcard/Music/ShuffleTest
+adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null 2>&1 || true
+for _ in $(seq 1 15); do
+  adb shell content query --uri content://media/external/audio/media --projection title | grep -q "Tune 0" || break
+  sleep 2
+done
+adb shell content query --uri content://media/external/audio/media --projection title | grep -q "Tune 0" && fail "the test songs weren't removed before unpacking"
+adb shell pm clear "$PKG"
+adb shell pm grant "$PKG" android.permission.READ_MEDIA_AUDIO
+adb shell am start -W -n "$PKG/.MainActivity" > /dev/null
+sleep 8
+go_library
+open_settings
+on_screen "Unpack songs from a zip…"
+tap_here "Unpack songs from a zip…"
+sleep 4
+dump unzip-picker
+if ! python3 "$HERE/find_text.py" "$OUT/unzip-picker.xml" "$ZIP" > /dev/null 2>&1; then
+  tap unzip-picker "Show roots"
+  sleep 2
+  dump unzip-roots
+  tap unzip-roots "Downloads"
+  sleep 2
+  dump unzip-picker
+fi
+shot 72-unzip-picker
+tap unzip-picker "$ZIP"
+for _ in $(seq 1 40); do
+  sleep 2
+  dump unzip-after
+  grep -q "Restore this backup?" "$OUT/unzip-after.xml" && break
+done
+shot 73-unzip-restore
+adb shell content query --uri content://media/external/audio/media --projection _display_name:relative_path > "$OUT/after-unzip.txt"
+grep -q "_display_name=tune01.mp3, relative_path=Music/ShuffleTest/" "$OUT/after-unzip.txt" || fail "unpacking didn't put tune01.mp3 back in Music/ShuffleTest"
+grep -c "relative_path=Music/SmokeTest/" "$OUT/after-unzip.txt" | grep -qx 3 || echo "(note: songs already on the phone: $(grep -c 'relative_path=Music/SmokeTest/' "$OUT/after-unzip.txt") in Music/SmokeTest)"
+grep -q "song1 (1).mp3" "$OUT/after-unzip.txt" && fail "unpacking made a copy of a song that was already on the phone"
+grep -q "Restore this backup?" "$OUT/unzip-after.xml" || fail "after unpacking, the backup in the zip wasn't offered"
+tap unzip-after "Restore" exact
+sleep 4
+adb shell input keyevent KEYCODE_BACK # Settings -> Library
+sleep 2
+chip "Playlists"
+sleep 2
+on_screen "Order Test"
+tap on-screen "Order Test"
+sleep 3
+scroll_down
+dump unzip-order
+echo "playlist after unpacking and restoring: $(playlist_order unzip-order)"
+[ "$(playlist_order unzip-order)" = "Tune 01 Tune 02 Tune 03" ] || fail "the playlist doesn't find the unpacked songs"
+echo "PASS: on a new phone, the zip puts the songs back in their folders and brings the playlists with them"
 
 echo "--- Android Auto"
 # Android prints the service either as "pkg/.PlaybackService" or "name=pkg.PlaybackService".
