@@ -6,21 +6,22 @@ import androidx.media3.common.MediaMetadata
 import org.json.JSONArray
 
 /**
- * Your library as Android Auto shows it: folders to browse (Recently played, Liked songs,
- * Playlists, Albums & movies, Artists, Music directors, All songs) and songs to play.
+ * Your library as Android Auto (and the TV app, see [TvShareService]) shows it: folders to browse
+ * (Recently played, Liked songs, Playlists, Albums & movies, Artists, Music directors, All songs)
+ * and songs to play.
  * Read from the phone when the car asks, and kept for a minute.
  */
 class CarLibrary(private val context: Context) {
 
     companion object {
         const val ROOT = "root"
-        private const val RECENT = "recent"
-        private const val LIKED = "liked"
-        private const val PLAYLISTS = "playlists"
-        private const val ALBUMS = "albums"
-        private const val ARTISTS = "artists"
-        private const val COMPOSERS = "composers"
-        private const val ALL = "all"
+        const val RECENT = "recent"
+        const val LIKED = "liked"
+        const val PLAYLISTS = "playlists"
+        const val ALBUMS = "albums"
+        const val ARTISTS = "artists"
+        const val COMPOSERS = "composers"
+        const val ALL = "all"
         private const val CACHE_MS = 60_000L
     }
 
@@ -45,6 +46,9 @@ class CarLibrary(private val context: Context) {
 
     /** Every song on the phone (with your edits), read at most once a minute. */
     fun songs(): List<Song> = library().songs
+
+    /** One of your songs by its id, or null. */
+    fun song(id: String): Song? = library().byId[id]
 
     val root: MediaItem get() = folder(ROOT, "Isaialai", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
 
@@ -89,8 +93,8 @@ class CarLibrary(private val context: Context) {
         return children(ROOT)?.firstOrNull { it.mediaId == id }
     }
 
-    /** The songs in a song list (Liked songs, a playlist, an album…), in play order. */
-    private fun songsIn(parentId: String): List<Song>? {
+    /** The songs in a song list (Liked songs, a playlist, an album…), in play order; null if [parentId] isn't one. */
+    fun songsIn(parentId: String): List<Song>? {
         val lib = library()
         return when {
             parentId == RECENT -> history().mapNotNull { lib.byId[it] }

@@ -37,6 +37,30 @@ Results of a code review of Isaialai and what was changed.
   hear the song too. While casting, the phone holds a wake lock and Wi-Fi lock
   (released when casting stops) so the music doesn't stop when the screen
   goes off.
+- **The TV app only sees what you allow.** The third use of the network is
+  Settings → Play on TV app → *Share with your TV*, which is off until you
+  turn it on. While on, a foreground service (with a notification and a Stop
+  button) runs a small server (`TvShareServer.kt`, on the same base as the
+  cast server) and announces the phone on your Wi-Fi so the TV app can find
+  it. It:
+  - listens only on the phone's Wi-Fi address, never on mobile data, and
+    stops after 30 minutes without the TV, when the phone leaves Wi-Fi, or
+    when you turn it off;
+  - answers only "which phone is this" (its name, as announced on the Wi-Fi
+    anyway) and pairing requests without a key;
+  - pairs a TV only when you tap **Allow** on the phone, after checking the
+    4-digit code on the TV matches the one on the phone. At most three
+    requests can wait at once, six a minute, each for three minutes, and a
+    TV's name is shown as plain text (control characters removed);
+  - then gives the TV a random 256-bit key, needed in every address. The
+    phone keeps only a SHA-256 hash of it. Settings → Play on TV app lists
+    allowed TVs, and **Forget** cuts one off;
+  - with a key, only reads: your lists (as Android Auto sees them), and songs
+    and covers from your library or added folders. Nothing on the phone can
+    be changed through it.
+  As with casting, it's plain HTTP on your Wi-Fi, so someone on your Wi-Fi
+  watching its traffic could see the key and hear the music; keep sharing off
+  on Wi-Fi you don't trust. The TV app keeps its key in its own private storage.
 - **Not debuggable**, and release builds are minified.
 - **Limited storage access.** It asks for `READ_MEDIA_AUDIO` (or
   `READ_EXTERNAL_STORAGE` on Android 12 and older) and read-only access to

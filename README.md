@@ -233,6 +233,28 @@ A one-line-per-feature list, ready to share, is in [FEATURES.md](FEATURES.md).
   the list itself. The equaliser, volume boost, even volume, crossfade and
   autoplay are the phone's own sound effects, so they don't apply on the TV.
   Samsung and LG TVs without Chromecast built in aren't supported yet.
+  On a Google TV or Android TV, the TV app (below) does more.
+- **Isaialai on your TV** (Google TV / Android TV, including Chromecast with
+  Google TV): the same APK installs on the TV as a TV app, and plays the
+  music on your phone, browsed and controlled with the TV remote: Playlists,
+  Liked songs, Recently played, Albums & movies, Artists, Music directors and
+  All songs; Play and Shuffle; a now-playing screen with Up next (pick any
+  song in it), ⏮ ⏪10 ⏯ ⏩10 ⏭ and shuffle; the remote's media buttons; and
+  it keeps playing when you go to the TV's home screen.
+  - **Installing it on the TV**: on the TV, install **Downloader** from the
+    Play Store, allow it to install apps (the TV asks), and open the same
+    download link as on the phone. Isaialai then appears in the TV's apps.
+    Later updates: TV app → Settings → Check for updates.
+  - **Connecting**: on the phone, Settings → **Play on TV app** → turn on
+    **Share with your TV**. Open Isaialai on the TV and pick your phone (or
+    type the address the phone shows). The first time, the TV shows a
+    4-digit code and the phone asks whether to allow it: check the code
+    matches and tap Allow. After that the TV connects by itself whenever
+    sharing is on.
+  - Songs travel from the phone to the TV over your Wi-Fi only. Sharing
+    stops by itself after 30 minutes without the TV, or when the phone
+    leaves Wi-Fi, and can be turned off from its notification. Settings
+    lists the TVs you've allowed, with **Forget**.
 - **Home-screen widget**: long-press your home screen → Widgets → Isaialai.
   It shows the cover, title and artist with ⏮ ⏯ ⏭, works when the app is
   closed, and opens the app when you tap it.
@@ -293,6 +315,9 @@ Requires Android 8.0 or newer.
 | `ui/ArtColors.kt` | Picks each cover's colour (androidx.palette) for the tinted backgrounds |
 | `ui/EqualizerScreen.kt`, `Effects.kt` | Equaliser screen and its settings; `PlaybackService` owns the effects and the sleep timer |
 | `PlayerWidget.kt` | Home-screen widget and its buttons |
+| `TvShare.kt`, `TvShareServer.kt`, `ui/TvShareSection.kt` | The phone's side of the TV app: the sharing service, pairing, and the lists and songs it serves |
+| `tv/` | The TV app: finding and pairing with the phone, browsing, the player and its screens |
+| `TinyHttpServer.kt` | The small Wi-Fi-only web server both casting and the TV app use |
 | `Cast.kt`, `CastServer.kt`, `ui/CastDialog.kt` | Casting: finding TVs, handing the queue to the TV and back, and the small Wi-Fi-only server the TV reads songs from |
 | `ci/icon/gen.py` | Generates the launcher icon (the vibing listener, plus the themed one-colour version) as vector drawables |
 

@@ -72,8 +72,7 @@ class CastBridge(context: Context) {
     private val app = context.applicationContext
     private val server = CastServer(::source)
     private val originals = ConcurrentHashMap<String, MediaItem>()
-    private var wakeLock: PowerManager.WakeLock? = null
-    private var wifiLock: WifiManager.WifiLock? = null
+    private val locks = AwakeLocks(app, "Isaialai:cast")
 
     /** Starts serving on the network shared with the TV at [tv]; false if this phone isn't on one. */
     fun start(tv: InetAddress?): Boolean {
@@ -90,26 +89,11 @@ class CastBridge(context: Context) {
     fun stop() {
         server.stop()
         originals.clear()
-        try {
-            wakeLock?.takeIf { it.isHeld }?.release()
-            wifiLock?.takeIf { it.isHeld }?.release()
-        } catch (e: RuntimeException) {
-        }
+        locks.release()
     }
 
-    /** (Re)takes the locks; called whenever the TV starts playing. They last at most 6 hours. */
-    fun keepAwake() {
-        try {
-            val wl = wakeLock ?: (app.getSystemService(Context.POWER_SERVICE) as PowerManager)
-                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Isaialai:cast").also { it.setReferenceCounted(false); wakeLock = it }
-            wl.acquire(6 * 60 * 60_000L)
-            @Suppress("DEPRECATION")
-            val fl = wifiLock ?: (app.getSystemService(Context.WIFI_SERVICE) as WifiManager)
-                .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "Isaialai:cast").also { it.setReferenceCounted(false); wifiLock = it }
-            if (!fl.isHeld) fl.acquire()
-        } catch (e: RuntimeException) {
-        }
-    }
+    /** (Re)takes the locks; called whenever the TV starts playing. */
+    fun keepAwake() = locks.hold()
 
     /** [item] (one of your songs, already checked) as the TV should get it, or null when not casting. */
     fun castItem(item: MediaItem): MediaItem? {
@@ -121,7 +105,7 @@ class CastBridge(context: Context) {
         return MediaItem.Builder()
             .setMediaId(id)
             .setUri(url)
-            .setMimeType(mimeOf(Song.uriForId(id)))
+            .setMimeType(SongFiles.mimeOf(app, Song.uriForId(id)))
             .setMediaMetadata(md.buildUpon().setArtworkUri(art?.let(Uri::parse)).build())
             .build()
     }
@@ -129,70 +113,12 @@ class CastBridge(context: Context) {
     /** The phone's own item for a song the TV has, to play it here again after casting. */
     fun original(id: String): MediaItem? = originals[id]
 
-    private fun source(kind: String, id: String): CastServer.Source? {
+    private fun source(kind: String, id: String): TinyHttpServer.Source? {
         val item = originals[id] ?: return null
-        val uri = item.localConfiguration?.uri ?: Song.uriForId(id)
         return when (kind) {
-            CastServer.SONG -> {
-                val length = lengthOf(uri) ?: return null
-                CastServer.Source(length, mimeOf(uri)) { offset ->
-                    val input = app.contentResolver.openInputStream(uri) ?: throw IOException("Can't read $uri")
-                    skipFully(input, offset)
-                    input
-                }
-            }
-            CastServer.ART -> {
-                val art = item.mediaMetadata.artworkUri ?: return null
-                val bitmap = ArtLoader.decode(app, art, 600) ?: return null
-                val bytes = ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.JPEG, 88, it) }.toByteArray()
-                CastServer.Source(bytes.size.toLong(), "image/jpeg") { offset -> ByteArrayInputStream(bytes, offset.toInt(), bytes.size - offset.toInt()) }
-            }
+            CastServer.SONG -> SongFiles.song(app, item.localConfiguration?.uri ?: Song.uriForId(id))
+            CastServer.ART -> item.mediaMetadata.artworkUri?.let { SongFiles.art(app, it) }
             else -> null
-        }
-    }
-
-    private fun lengthOf(uri: Uri): Long? {
-        try {
-            app.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { c ->
-                if (c.moveToFirst() && !c.isNull(0)) c.getLong(0).takeIf { it > 0 }?.let { return it }
-            }
-        } catch (e: Exception) {
-        }
-        return try {
-            app.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length.takeIf { n -> n > 0 } }
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    private fun mimeOf(uri: Uri): String {
-        val type = try {
-            app.contentResolver.getType(uri)
-        } catch (e: Exception) {
-            null
-        }
-        if (type != null && type.startsWith("audio/")) return type
-        val name = try {
-            app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
-                if (c.moveToFirst()) c.getString(0) else null
-            }
-        } catch (e: Exception) {
-            null
-        }
-        val ext = name?.substringAfterLast('.', "")?.lowercase().orEmpty()
-        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)?.takeIf { it.startsWith("audio/") } ?: "audio/mpeg"
-    }
-
-    private fun skipFully(input: InputStream, count: Long) {
-        var left = count
-        while (left > 0) {
-            val n = input.skip(left)
-            if (n <= 0) {
-                if (input.read() < 0) throw IOException("Past the end")
-                left--
-            } else {
-                left -= n
-            }
         }
     }
 
@@ -227,6 +153,102 @@ class CastBridge(context: Context) {
                 if ((x[bit / 8].toInt() and mask) != (y[bit / 8].toInt() and mask)) return false
             }
             return true
+        }
+    }
+}
+
+/**
+ * Keeps the phone's processor and Wi-Fi awake while a TV is reading songs from it, so the music
+ * doesn't stop when the screen goes off. Each [hold] lasts at most 6 hours.
+ */
+class AwakeLocks(context: Context, private val tag: String) {
+    private val app = context.applicationContext
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
+
+    fun hold() {
+        try {
+            val wl = wakeLock ?: (app.getSystemService(Context.POWER_SERVICE) as PowerManager)
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, tag).also { it.setReferenceCounted(false); wakeLock = it }
+            wl.acquire(6 * 60 * 60_000L)
+            @Suppress("DEPRECATION")
+            val fl = wifiLock ?: (app.getSystemService(Context.WIFI_SERVICE) as WifiManager)
+                .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, tag).also { it.setReferenceCounted(false); wifiLock = it }
+            if (!fl.isHeld) fl.acquire()
+        } catch (e: RuntimeException) {
+        }
+    }
+
+    fun release() {
+        try {
+            wakeLock?.takeIf { it.isHeld }?.release()
+            wifiLock?.takeIf { it.isHeld }?.release()
+        } catch (e: RuntimeException) {
+        }
+    }
+}
+
+/** Reading a song or its cover to send to a TV over Wi-Fi (casting, and the TV app). */
+object SongFiles {
+    /** The song at [uri], or null if it can't be read. */
+    fun song(context: Context, uri: Uri): TinyHttpServer.Source? {
+        val length = lengthOf(context, uri) ?: return null
+        return TinyHttpServer.Source(length, mimeOf(context, uri)) { offset ->
+            val input = context.contentResolver.openInputStream(uri) ?: throw IOException("Can't read $uri")
+            skipFully(input, offset)
+            input
+        }
+    }
+
+    /** The cover at [artUri] as a JPEG about [size] pixels across, or null if there isn't one. */
+    fun art(context: Context, artUri: Uri, size: Int = 600): TinyHttpServer.Source? {
+        val bitmap = ArtLoader.decode(context, artUri, size) ?: return null
+        val bytes = ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.JPEG, 88, it) }.toByteArray()
+        return TinyHttpServer.Source(bytes.size.toLong(), "image/jpeg") { offset -> ByteArrayInputStream(bytes, offset.toInt(), bytes.size - offset.toInt()) }
+    }
+
+    private fun lengthOf(context: Context, uri: Uri): Long? {
+        try {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { c ->
+                if (c.moveToFirst() && !c.isNull(0)) c.getLong(0).takeIf { it > 0 }?.let { return it }
+            }
+        } catch (e: Exception) {
+        }
+        return try {
+            context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length.takeIf { n -> n > 0 } }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun mimeOf(context: Context, uri: Uri): String {
+        val type = try {
+            context.contentResolver.getType(uri)
+        } catch (e: Exception) {
+            null
+        }
+        if (type != null && type.startsWith("audio/")) return type
+        val name = try {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0) else null
+            }
+        } catch (e: Exception) {
+            null
+        }
+        val ext = name?.substringAfterLast('.', "")?.lowercase().orEmpty()
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)?.takeIf { it.startsWith("audio/") } ?: "audio/mpeg"
+    }
+
+    private fun skipFully(input: InputStream, count: Long) {
+        var left = count
+        while (left > 0) {
+            val n = input.skip(left)
+            if (n <= 0) {
+                if (input.read() < 0) throw IOException("Past the end")
+                left--
+            } else {
+                left -= n
+            }
         }
     }
 }

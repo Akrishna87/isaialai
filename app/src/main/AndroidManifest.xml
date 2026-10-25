@@ -30,9 +30,25 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Settings → Play on TV app: while you have "Share with your TV" on, a service lets
+         Isaialai on your TV play this phone's music over Wi-Fi (Android calls that a connected
+         device). The Wi-Fi multicast permission is what Android asks such services to have; the
+         phone announces itself on Wi-Fi so the TV finds it. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
+    <!-- The same app runs on Google TV / Android TV (TvActivity), which has no touchscreen. -->
+    <uses-feature
+        android:name="android.software.leanback"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+
     <!-- No backups or phone-to-phone copies of the app's data (play history, folder access). -->
     <application
         android:allowBackup="false"
+        android:banner="@drawable/tv_banner"
         android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
@@ -60,6 +76,33 @@
                 <action android:name="androidx.media3.session.MediaLibraryService" />
                 <action android:name="androidx.media3.session.MediaSessionService" />
                 <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+
+        <!-- Sharing this phone's music with the TV app. -->
+        <service
+            android:name=".TvShareService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
+        <!-- On a TV: the TV app (only in the TV's launcher), and its player. -->
+        <activity
+            android:name=".tv.TvActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".tv.TvPlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
 

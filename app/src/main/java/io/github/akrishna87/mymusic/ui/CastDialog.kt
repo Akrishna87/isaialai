@@ -91,6 +91,13 @@ fun CastDialog(vm: MusicViewModel, onDismiss: () -> Unit) {
                     color = Palette.SubText,
                     fontSize = 12.sp,
                 )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Google TV or Android TV? Isaialai's TV app lets you browse playlists and use the TV remote: " +
+                        "see Settings → Play on TV app.",
+                    color = Palette.SubText,
+                    fontSize = 12.sp,
+                )
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },

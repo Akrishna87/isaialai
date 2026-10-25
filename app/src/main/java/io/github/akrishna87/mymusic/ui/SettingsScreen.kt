@@ -72,6 +72,8 @@ fun SettingsScreen(vm: MusicViewModel) {
             item { SettingsCard { BoostControls(vm) } }
             item { SettingsHeading("Home screen") }
             item { HomeLayoutCard(vm) }
+            item { SettingsHeading("Play on TV app") }
+            item { TvShareCard() }
             item { SettingsHeading("Backup & restore") }
             item { BackupCard(vm) }
             item { SettingsHeading("Tools") }

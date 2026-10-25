@@ -1749,6 +1749,119 @@ echo "playlist after unpacking and restoring: $(playlist_order unzip-order)"
 [ "$(playlist_order unzip-order)" = "Tune 01 Tune 02 Tune 03" ] || fail "the playlist doesn't find the unpacked songs"
 echo "PASS: on a new phone, the zip puts the songs back in their folders and brings the playlists with them"
 
+echo "--- Play on TV app: the phone shares, and the TV app (on this same emulator) pairs, browses and plays"
+tv_state() { adb shell dumpsys media_session > "$OUT/tv-session.txt"; python3 "$HERE/tv_session.py" "$OUT/tv-session.txt"; }
+adb shell input keyevent KEYCODE_MEDIA_PAUSE # quiet the phone's own player
+fresh_start
+go_library
+open_settings
+on_screen "Share with your TV"
+tap_here "Share with your TV"
+sleep 4
+scroll_step # bring the address under the switch into view
+sleep 1
+dump tv-share
+shot 80-tv-share
+[ "$(switch_state tv-share "Share with your TV")" = on ] || fail "the Share with your TV switch didn't turn on"
+ADDR=$(grep -o 'Sharing on Wi-Fi at [0-9.]*:[0-9]*' "$OUT/tv-share.xml" | head -1 | sed 's/.* at //')
+[ -n "$ADDR" ] || fail "sharing didn't say which address it's on"
+PHONE=$(grep -o 'pick this phone ([^)]*)' "$OUT/tv-share.xml" | head -1 | sed 's/pick this phone (//; s/)$//')
+echo "sharing on $ADDR as '$PHONE'"
+adb shell dumpsys activity services "$PKG" | grep -q "TvShareService" || fail "the sharing service isn't running"
+echo "PASS: the phone shares its music with the TV app"
+
+adb shell am start -W -n "$PKG/.tv.TvActivity" > /dev/null
+sleep 6
+dump tv-connect
+shot 81-tv-connect
+grep -q "Play your phone&apos;s music on this TV\|Play your phone's music on this TV" "$OUT/tv-connect.xml" || fail "the TV app didn't open on its connect screen"
+if [ -n "$PHONE" ] && python3 "$HERE/find_text.py" "$OUT/tv-connect.xml" "$PHONE" exact > /dev/null 2>&1; then
+  echo "PASS: the TV app found the phone on the Wi-Fi by itself"
+  tap tv-connect "$PHONE" exact
+else
+  echo "(note: the TV app didn't list the phone by itself here; typing its address instead)"
+  tap tv-connect "Type the phone's address"
+  sleep 2
+  dump tv-type
+  tap tv-type "Phone's address"
+  sleep 1
+  adb shell input text "$ADDR"
+  sleep 1
+  adb shell input keyevent KEYCODE_BACK # hide the keyboard
+  sleep 1
+  dump tv-typed
+  tap tv-typed "Connect" exact
+fi
+sleep 4
+dump tv-pairing
+shot 82-tv-pairing
+grep -q "tap Allow" "$OUT/tv-pairing.xml" || fail "the TV app didn't ask the phone to pair"
+CODE=$(grep -o 'text="[0-9]\{4\}"' "$OUT/tv-pairing.xml" | head -1 | grep -o '[0-9]\{4\}')
+[ -n "$CODE" ] || fail "the TV app doesn't show a pairing code"
+adb shell am start -W -n "$PKG/.MainActivity" > /dev/null
+sleep 3
+dump tv-allow
+shot 83-tv-allow
+grep -q "wants to browse and play the music on this phone" "$OUT/tv-allow.xml" || fail "the phone didn't ask whether to allow the TV"
+grep -q "text=\"$CODE\"" "$OUT/tv-allow.xml" || fail "the phone shows a different code from the TV's ($CODE)"
+tap tv-allow "Allow" exact
+sleep 2
+adb shell am start -W -n "$PKG/.tv.TvActivity" > /dev/null
+sleep 6
+dump tv-main
+shot 84-tv-main
+grep -q 'text="All songs"' "$OUT/tv-main.xml" || fail "after pairing, the TV app doesn't show the phone's lists"
+grep -q 'text="Liked songs"' "$OUT/tv-main.xml" || fail "the TV app doesn't list Liked songs"
+echo "PASS: the TV pairs after you allow it on the phone, with the same code on both"
+
+tap tv-main "All songs" exact
+sleep 4
+dump tv-all
+shot 85-tv-all-songs
+grep -q 'text="Smoke Song 1"' "$OUT/tv-all.xml" || fail "the TV app doesn't list the phone's songs"
+tap tv-all "Play" exact
+sleep 6
+dump tv-player
+shot 86-tv-player
+grep -q 'text="Up next"' "$OUT/tv-player.xml" || fail "the TV app's player with Up next didn't open"
+STATE=$(tv_state)
+echo "TV player: $STATE"
+case "$STATE" in PLAYING*|3*) ;; *) fail "the TV app isn't playing the phone's songs ($STATE)" ;; esac
+FIRST=${STATE#*| }
+echo "PASS: the TV app plays songs streamed from the phone"
+
+adb shell input keyevent KEYCODE_MEDIA_NEXT # the remote's next button
+sleep 4
+STATE=$(tv_state)
+echo "TV player after next: $STATE"
+[ "${STATE#*| }" != "$FIRST" ] || fail "the remote's next button didn't skip on the TV ($STATE)"
+adb shell input keyevent KEYCODE_DPAD_CENTER # the play/pause button has focus
+sleep 2
+case "$(tv_state)" in
+  PAUSED*|2*) echo "PASS: the remote's select button pauses (focus starts on play/pause)" ;;
+  *)
+    echo "(note: after touch input, the first D-pad press only shows focus here)"
+    adb shell input keyevent KEYCODE_MEDIA_PLAY_PAUSE
+    sleep 2
+    case "$(tv_state)" in PAUSED*|2*) ;; *) fail "the remote's play/pause button didn't pause the TV ($(tv_state))" ;; esac
+    ;;
+esac
+echo "PASS: the TV remote skips songs and pauses"
+
+adb shell am start -W -n "$PKG/.MainActivity" > /dev/null
+sleep 3
+open_settings
+on_screen "TVs you've allowed"
+echo "PASS: the phone lists the TV you allowed"
+on_screen "Share with your TV"
+tap_here "Share with your TV"
+sleep 3
+dump tv-share-off
+[ "$(switch_state tv-share-off "Share with your TV")" = off ] || fail "the Share with your TV switch didn't turn off"
+sleep 2
+adb shell dumpsys activity services "$PKG" | grep -q "TvShareService" && fail "the sharing service kept running after turning it off"
+echo "PASS: turning sharing off stops it"
+
 echo "--- Android Auto"
 # Android prints the service either as "pkg/.PlaybackService" or "name=pkg.PlaybackService".
 adb shell cmd package query-services -a androidx.media3.session.MediaLibraryService > "$OUT/library-services.txt"
