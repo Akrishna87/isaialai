@@ -116,6 +116,26 @@ fun NowPlaying(vm: MusicViewModel) {
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("PLAYING FROM", style = MaterialTheme.typography.labelSmall, color = dim)
                         Text(vm.playingFrom, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                        vm.cast.connectedTo?.let { tv ->
+                            Text(
+                                "Playing on $tv",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    if (vm.cast.available) {
+                        val on = vm.cast.connectedTo != null
+                        IconButton(onClick = { vm.showCast = true }) {
+                            Icon(
+                                if (on) Icons.Rounded.CastConnected else Icons.Rounded.Cast,
+                                if (on) "Casting to ${vm.cast.connectedTo}" else "Cast to TV",
+                                tint = if (on) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                            )
+                        }
                     }
                     Box {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "More options") }
@@ -289,6 +309,7 @@ fun NowPlaying(vm: MusicViewModel) {
     if (sleepDialog) SleepTimerDialog(vm) { sleepDialog = false }
     if (speedDialog) SpeedDialog(vm) { speedDialog = false }
     if (boostDialog) BoostDialog(vm) { boostDialog = false }
+    if (vm.showCast) CastDialog(vm) { vm.showCast = false }
 }
 
 private enum class Panel { COVER, QUEUE, LYRICS }

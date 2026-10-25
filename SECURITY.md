@@ -16,6 +16,27 @@ Results of a code review of Isaialai and what was changed.
   `REQUEST_INSTALL_PACKAGES` stays off until you allow it.
   (`ACCESS_NETWORK_STATE` comes in from the Media3 library and only reads
   whether a network is connected.)
+- **Casting stays on your Wi-Fi.** The second use of the network is casting to
+  a TV, only after you pick a TV. Google Play services finds TVs on your Wi-Fi
+  and tells the TV to open Google's standard media receiver; the TV then reads
+  each song from a small web server on the phone (`CastServer.kt`). That
+  server:
+  - runs only while casting, and stops when casting stops;
+  - listens only on the phone's address on the network shared with the TV
+    (home Wi-Fi or the phone's hotspot), never on mobile data;
+  - puts a new random 128-bit secret in every address it hands out, each time
+    casting starts, and answers anything else with "not found";
+  - serves only the songs (and their covers) that were sent to the TV's queue,
+    read-only, and only songs from your library or added folders;
+  - handles at most six requests at once, drops oversized or idle ones
+    (8 KB headers, 20 s), and reads nothing it's sent beyond the request line
+    and headers.
+  Like any media sent to a Chromecast, the addresses travel over your Wi-Fi
+  without encryption (plain HTTP: a TV won't trust a certificate the phone
+  makes for itself), so someone already on your Wi-Fi who can watch its traffic could
+  hear the song too. While casting, the phone holds a wake lock and Wi-Fi lock
+  (released when casting stops) so the music doesn't stop when the screen
+  goes off.
 - **Not debuggable**, and release builds are minified.
 - **Limited storage access.** It asks for `READ_MEDIA_AUDIO` (or
   `READ_EXTERNAL_STORAGE` on Android 12 and older) and read-only access to

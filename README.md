@@ -7,7 +7,8 @@ builds install over the old one and keep your playlists and settings.
 A native Android music player that plays the songs already saved on your
 phone **straight from storage**. There's nothing to pick or import and no
 copies, uploads, ads or account. (It goes online only when you tap
-**Check for updates** in Settings.) New songs you download show up by
+**Check for updates** in Settings, or cast to a TV on your Wi-Fi.) New songs
+you download show up by
 themselves.
 
 ## Installing it
@@ -219,6 +220,19 @@ A one-line-per-feature list, ready to share, is in [FEATURES.md](FEATURES.md).
   the Play Store unless you turn on *Unknown sources* in Android Auto's
   developer settings (open Android Auto settings, tap *Version* ten times,
   then ⋮ → Developer settings → Unknown sources).
+- **Cast to your TV**: on the full player, tap the cast button (top right) and
+  pick your TV. It works with Chromecast, Google TV, Android TV and TVs with
+  Chromecast built in, on the same Wi-Fi as the phone. The music carries on
+  on the TV from the same song and place, and the phone, notification, lock
+  screen and widget become its remote (play, pause, skip, ⏪ 10 / ⏩ 10,
+  seek, Up next, sleep timer). Tap the button again → **Stop casting**, and
+  it carries on from the same place on the phone, paused. The songs go
+  straight from the phone to the TV over your Wi-Fi (nothing is uploaded);
+  the TV opens Google's standard media receiver to play them, so it needs
+  internet. The TV has no shuffle mode, so shuffling while casting shuffles
+  the list itself. The equaliser, volume boost, even volume, crossfade and
+  autoplay are the phone's own sound effects, so they don't apply on the TV.
+  Samsung and LG TVs without Chromecast built in aren't supported yet.
 - **Home-screen widget**: long-press your home screen → Widgets → Isaialai.
   It shows the cover, title and artist with ⏮ ⏯ ⏭, works when the app is
   closed, and opens the app when you tap it.
@@ -279,6 +293,7 @@ Requires Android 8.0 or newer.
 | `ui/ArtColors.kt` | Picks each cover's colour (androidx.palette) for the tinted backgrounds |
 | `ui/EqualizerScreen.kt`, `Effects.kt` | Equaliser screen and its settings; `PlaybackService` owns the effects and the sleep timer |
 | `PlayerWidget.kt` | Home-screen widget and its buttons |
+| `Cast.kt`, `CastServer.kt`, `ui/CastDialog.kt` | Casting: finding TVs, handing the queue to the TV and back, and the small Wi-Fi-only server the TV reads songs from |
 | `ci/icon/gen.py` | Generates the launcher icon (the vibing listener, plus the themed one-colour version) as vector drawables |
 
 ## Ideas for later

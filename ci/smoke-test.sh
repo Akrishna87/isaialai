@@ -197,6 +197,30 @@ shot 4-now-playing
 dump nowplaying
 grep -qi "playing from" "$OUT/nowplaying.xml" || fail "the full player didn't open"
 echo "PASS: full player opens"
+
+echo "--- Cast to TV"
+# The emulator has Google Play services but no TV on its network: the picker should open, look
+# for TVs, offer "This phone", and say none were found, with the music still playing here.
+if grep -q 'content-desc="Cast to TV"' "$OUT/nowplaying.xml"; then
+  tap nowplaying "Cast to TV"
+  sleep 2
+  dump cast
+  shot 4a-cast
+  grep -q 'text="Play on"' "$OUT/cast.xml" || fail "the cast picker didn't open"
+  grep -q 'text="This phone"' "$OUT/cast.xml" || fail "the cast picker doesn't offer this phone"
+  grep -q "Looking for TVs on your Wi-Fi\|No TVs found" "$OUT/cast.xml" || fail "the cast picker doesn't say it's looking for TVs"
+  sleep 8
+  dump cast-none
+  grep -q "No TVs found" "$OUT/cast-none.xml" || grep -q 'text="Close"' "$OUT/cast-none.xml" || fail "the cast picker went away by itself"
+  tap cast-none "Close" exact
+  sleep 1
+  dump cast-closed
+  grep -qi "playing from" "$OUT/cast-closed.xml" || fail "closing the cast picker didn't go back to the player"
+  playing || fail "the music stopped after looking for TVs"
+  echo "PASS: the cast picker looks for TVs and offers this phone; music keeps playing here"
+else
+  echo "(note: no Cast button: this emulator's Google Play services can't cast)"
+fi
 tap nowplaying "Like" last # the heart on the full player (the mini player's is underneath)
 sleep 1
 

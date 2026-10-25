@@ -1,6 +1,6 @@
 🎧 Isaialai (இசையலை) – music player for Android
 
-🎵 Plays the songs already on your phone, straight from storage. No ads, no account, and it only goes online if you tap Check for updates.
+🎵 Plays the songs already on your phone, straight from storage. No ads, no account, and it only goes online if you tap Check for updates or cast to your TV.
 📂 Finds songs in every folder, even ones other players miss (WhatsApp, Telegram, downloads).
 🗂️ Browse your folders like a file manager.
 🏠 Home shows Jump back in, Mixes for you, Your recap, Recently added, Your artists, On repeat and Rediscover.
@@ -27,6 +27,7 @@
 📱 Home-screen widget with play, pause and skip.
 🎧 Works with headphones, Bluetooth, the notification and lock-screen controls, and keeps playing in the background.
 🚗 Android Auto: pick songs from your car's screen.
+📺 Cast to your TV (Chromecast, Google TV, Android TV): the phone becomes the remote, and the music comes back to the phone when you stop.
 🌗 Dark, light or match-phone theme, with colours from your wallpaper.
 ✏️ Fix a song's title, artist, album, music director or year.
 ✂️ Cut any song and save just the part you want.
@@ -39,6 +40,6 @@
 📲 Move to a new phone by copying that folder with any file manager, then tap Restore.
 🗜️ Pack all your songs (and playlists) into one zip, and unpack it on your new phone.
 📄 Playlists saved as .m3u files that other music apps can open; import .m3u playlists from other apps.
-🛡️ Private and secure: online only when you tap Check for updates, nothing about you is sent, and updates must be signed with the app's own key.
+🛡️ Private and secure: online only when you tap Check for updates or cast to your TV, nothing about you is sent, and updates must be signed with the app's own key.
 
 ⬇️ Download: https://github.com/Akrishna87/isaialai/releases/download/music-player-latest/Isaialai.apk

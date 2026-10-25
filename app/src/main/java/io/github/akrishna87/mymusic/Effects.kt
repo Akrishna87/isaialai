@@ -39,11 +39,14 @@ object Effects {
     /** Written by the service when it continues a song part-way: "<title>|<position ms>|<time>". */
     const val KEY_RESUMED = "resumed"
 
+    /** A casting problem for the screens to show: "message|time". */
+    const val KEY_CAST_PROBLEM = "cast_problem"
+
     /** Your choices, as saved in a backup (not what this phone's equaliser offers, or the timer). */
     val BACKUP_KEYS = listOf(KEY_ENABLED, KEY_PRESET, KEY_LEVELS, KEY_BASS, KEY_CROSSFADE, KEY_EVEN_VOLUME, KEY_BOOST, KEY_RESUME_MODE, KEY_AUTOPLAY)
 
     /** Keys the service writes for the screens to show, rather than settings it should act on. */
-    val STATUS_KEYS = setOf(KEY_INFO, KEY_SLEEP_UNTIL, KEY_SLEEP_END_OF_SONG, KEY_EVEN_VOLUME_NOW, KEY_BOOST_AVAILABLE, KEY_RESUMED)
+    val STATUS_KEYS = setOf(KEY_INFO, KEY_SLEEP_UNTIL, KEY_SLEEP_END_OF_SONG, KEY_EVEN_VOLUME_NOW, KEY_BOOST_AVAILABLE, KEY_RESUMED, KEY_CAST_PROBLEM)
 
     fun resumeMode(p: SharedPreferences): ResumeMode =
         ResumeMode.entries.firstOrNull { it.key == p.getString(KEY_RESUME_MODE, null) } ?: ResumeMode.LONG
