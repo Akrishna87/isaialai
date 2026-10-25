@@ -77,6 +77,8 @@ dependencies {
 
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-session:1.5.1")
+    // Casting to a TV (Google Cast); brings Google Play services' cast framework and androidx.mediarouter.
+    implementation("androidx.media3:media3-cast:1.5.1")
     // Cutting songs (trim and save as a new file) and making ringtones.
     implementation("androidx.media3:media3-transformer:1.5.1")
 

@@ -106,6 +106,10 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
     val playlists = PlaylistStore(app)
 
+    /** Casting to a TV: the TVs found, and which one is playing. */
+    val cast = CastRoutes(app).also { it.onProblem = { text -> messageChannel.trySend(text) } }
+    var showCast by mutableStateOf(false)
+
     /** Song details corrected in the app; see [SongEdits]. */
     private val edits = SongEdits(app)
     /** The song whose details are being edited, if the edit dialog is open. */
@@ -142,6 +146,9 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     private val effectsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { p, key ->
         if (key in Effects.BACKUP_KEYS) requestBackup()
         resumeMode = Effects.resumeMode(p)
+        if (key == Effects.KEY_CAST_PROBLEM) {
+            p.getString(key, null)?.substringBeforeLast('|')?.let { messageChannel.trySend(it) }
+        }
         if (key == Effects.KEY_RESUMED) {
             p.getString(Effects.KEY_RESUMED, null)?.split('|')?.takeIf { it.size == 3 }?.let { (title, pos, _) ->
                 val at = formatTime(pos.toLongOrNull() ?: 0)
@@ -278,6 +285,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         if (observing) getApplication<Application>().contentResolver.unregisterContentObserver(mediaObserver)
         controller?.removeListener(playerListener)
         MediaController.releaseFuture(controllerFuture)
+        cast.release()
     }
 
     fun onPermissionGranted() {
@@ -503,6 +511,13 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         val c = controller ?: return
         if (list.isEmpty()) return
         playingFrom = from
+        // A TV has no shuffle mode, so while casting the list itself is shuffled.
+        if (shuffled && !c.isCommandAvailable(Player.COMMAND_SET_SHUFFLE_MODE)) {
+            c.setMediaItems(list.shuffled().map { it.toMediaItem() }, 0, 0L)
+            c.prepare()
+            c.play()
+            return
+        }
         if (shuffled) c.shuffleModeEnabled = true
         val startIndex = if (shuffled) Random.nextInt(list.size) else start.coerceIn(0, list.size - 1)
         c.setMediaItems(list.map { it.toMediaItem() }, startIndex, 0L)
@@ -624,6 +639,10 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleShuffle() {
         val c = controller ?: return
+        if (!c.isCommandAvailable(Player.COMMAND_SET_SHUFFLE_MODE)) {
+            messageChannel.trySend("The TV can't shuffle what's queued. Use Shuffle on a list, an album or your songs instead.")
+            return
+        }
         c.shuffleModeEnabled = !c.shuffleModeEnabled
         messageChannel.trySend(if (c.shuffleModeEnabled) "Shuffle on" else "Shuffle off")
     }

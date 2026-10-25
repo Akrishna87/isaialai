@@ -13,6 +13,10 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Process
 import androidx.annotation.OptIn
+import androidx.core.content.ContextCompat
+import androidx.media3.cast.CastPlayer
+import androidx.media3.cast.DefaultMediaItemConverter
+import androidx.media3.cast.SessionAvailabilityListener
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -36,6 +40,7 @@ import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
+import com.google.android.gms.cast.framework.CastContext
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
@@ -91,6 +96,12 @@ class PlaybackService : MediaLibraryService() {
         private const val CMD_REWIND = "io.github.akrishna87.mymusic.REWIND_10"
         private const val CMD_FORWARD = "io.github.akrishna87.mymusic.FORWARD_10"
         private val SEEK_COMMANDS = listOf(SessionCommand(CMD_REWIND, Bundle.EMPTY), SessionCommand(CMD_FORWARD, Bundle.EMPTY))
+
+        /** How much of the queue the TV gets at once (see castWindow). */
+        private const val CAST_BEHIND = 5
+        private const val CAST_AHEAD = 24
+        private const val CAST_BATCH = 20
+        private const val CAST_REFILL_AT = 5
     }
 
     private var session: MediaLibrarySession? = null
@@ -137,6 +148,15 @@ class PlaybackService : MediaLibraryService() {
     private class Fade(val toId: String, val lengthMs: Long) {
         var handingOver = false
     }
+
+    // Casting to a TV: while connected, the session uses the TV's player instead of this phone's.
+    private var castContext: CastContext? = null
+    private var castPlayer: CastPlayer? = null
+    private val castBridge by lazy { CastBridge(this) }
+
+    /** The player the session is using: the TV's while casting, otherwise this phone's. */
+    private val current: Player get() = session?.player ?: player
+    private val casting: Boolean get() = castPlayer != null && session?.player === castPlayer
 
     override fun onCreate() {
         super.onCreate()
@@ -193,7 +213,7 @@ class PlaybackService : MediaLibraryService() {
                 if (logItem == null) logItem = player.currentMediaItem
                 logPlaying(isPlaying)
                 savePosition()
-                PlayerWidget.update(this@PlaybackService, player)
+                PlayerWidget.update(this@PlaybackService, current)
             }
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -227,7 +247,7 @@ class PlaybackService : MediaLibraryService() {
                     shuffleFromCurrent()
                 }
                 savePosition()
-                PlayerWidget.update(this@PlaybackService, player)
+                PlayerWidget.update(this@PlaybackService, current)
                 maybeAutoplay()
             }
 
@@ -274,12 +294,14 @@ class PlaybackService : MediaLibraryService() {
 
         restoreQueue()
         updateEvenVolume()
+        setUpCasting()
 
         scope.launch {
             while (isActive) {
                 delay(200)
                 crossfadeTick()
                 trackSong()
+                if (casting) snapshotCast()
             }
         }
         scope.launch {
@@ -297,13 +319,18 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         // Swiping the app away keeps music going if it's playing; otherwise shut down.
-        if (!player.playWhenReady || player.mediaItemCount == 0 || player.playbackState == Player.STATE_ENDED) {
+        val p = current
+        if (!p.playWhenReady || p.mediaItemCount == 0 || p.playbackState == Player.STATE_ENDED) {
             stopSelf()
         }
     }
 
     override fun onDestroy() {
         activePlayer = null
+        if (casting) castContext?.sessionManager?.endCurrentSession(true)
+        castPlayer?.setSessionAvailabilityListener(null)
+        castPlayer?.release()
+        castBridge.stop()
         logFinish()
         rememberWhereLeft()
         savePosition()
@@ -401,7 +428,7 @@ class PlaybackService : MediaLibraryService() {
                         applyVolume()
                         delay(500)
                     }
-                    player.pause()
+                    current.pause()
                     clearSleep()
                 }
             }
@@ -707,7 +734,7 @@ class PlaybackService : MediaLibraryService() {
         if (playing) {
             if (logSince == 0L) logSince = now
             if (logStartedAt == 0L) logStartedAt = System.currentTimeMillis()
-            player.duration.takeIf { it > 0 && it != C.TIME_UNSET }?.let { logDurationMs = it }
+            current.duration.takeIf { it > 0 && it != C.TIME_UNSET }?.let { logDurationMs = it }
         } else if (logSince != 0L) {
             logMs += now - logSince
             logSince = 0L
@@ -752,11 +779,12 @@ class PlaybackService : MediaLibraryService() {
     /** Queue indexes of the songs after the current one, in the order they'll play. */
     private fun upcoming(): MutableList<Int> {
         val out = mutableListOf<Int>()
-        val tl = player.currentTimeline
+        val p = current
+        val tl = p.currentTimeline
         if (tl.isEmpty) return out
-        var i = player.currentMediaItemIndex
+        var i = p.currentMediaItemIndex
         while (true) {
-            i = tl.getNextWindowIndex(i, Player.REPEAT_MODE_OFF, player.shuffleModeEnabled)
+            i = tl.getNextWindowIndex(i, Player.REPEAT_MODE_OFF, p.shuffleModeEnabled)
             if (i == C.INDEX_UNSET || out.size >= tl.windowCount) break
             out += i
         }
@@ -767,16 +795,17 @@ class PlaybackService : MediaLibraryService() {
     private fun moveUpcoming(from: Int, to: Int) {
         val up = upcoming()
         if (from !in up.indices || to !in up.indices || from == to) return
-        val cur = player.currentMediaItemIndex
-        if (player.shuffleModeEnabled) {
+        val p = current
+        val cur = p.currentMediaItemIndex
+        if (p === player && player.shuffleModeEnabled) {
             // Keep what has played, then the new Up next order.
             val order = shuffledIndexes()
             val played = order.subList(0, order.indexOf(cur) + 1).toList()
             up.add(to, up.removeAt(from))
             applyShuffleOrder(played + up)
         } else {
-            // Without shuffle, Up next is simply the queue after the current song.
-            player.moveMediaItem(cur + 1 + from, cur + 1 + to)
+            // Without shuffle (and on the TV, which has none), Up next is simply the queue after the current song.
+            p.moveMediaItem(cur + 1 + from, cur + 1 + to)
         }
     }
 
@@ -808,6 +837,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun enqueue(item: MediaItem, next: Boolean) {
+        if (casting) return enqueueOnTv(item, next)
         if (player.mediaItemCount == 0) {
             player.setMediaItem(item)
             player.prepare()
@@ -903,6 +933,205 @@ class PlaybackService : MediaLibraryService() {
         player.shuffleModeEnabled = pos.getBoolean("shuffle", false)
         player.setMediaItems(saved.items, saved.index, saved.position)
         player.prepare()
+    }
+
+    // ----- Casting to a TV -----
+
+    // A TV takes a limited queue in one go, so it's sent part of the queue at a time: up to
+    // CAST_BEHIND songs before the current one and CAST_AHEAD after, then more as it gets near the end.
+    private val castEarlier = ArrayList<MediaItem>()
+    private val castLater = ArrayDeque<MediaItem>()
+    private var castAdding = false
+    // What the TV is playing, kept up to date, to carry on from on the phone when casting stops.
+    private var castIds: List<String> = emptyList()
+    private var castIndex = 0
+    private var castPosition = 0L
+    // The phone was paused when casting started: pause the TV as soon as it starts.
+    private var castPauseOnStart = false
+
+    private fun setUpCasting() {
+        val cc = Cast.context(this) ?: return
+        val cp = CastPlayer(cc, DefaultMediaItemConverter(), SEEK_STEP_MS, SEEK_STEP_MS)
+        castContext = cc
+        castPlayer = cp
+        cp.addListener(castListener)
+        cp.setSessionAvailabilityListener(object : SessionAvailabilityListener {
+            override fun onCastSessionAvailable() = startCasting()
+            override fun onCastSessionUnavailable() = stopCasting()
+        })
+        if (cp.isCastSessionAvailable) startCasting()
+    }
+
+    /** A TV connected: carry on there, from the same song and place, and quieten the phone. */
+    private fun startCasting() {
+        val cp = castPlayer ?: return
+        val tv = castContext?.sessionManager?.currentCastSession?.castDevice
+        if (!castBridge.start(tv?.inetAddress)) {
+            castProblem("To cast, connect this phone to the same Wi-Fi as ${tv?.friendlyName ?: "the TV"}.")
+            castContext?.sessionManager?.endCurrentSession(true)
+            return
+        }
+        cancelFade()
+        logPlaying(false)
+        val play = player.playWhenReady
+        player.pause()
+        // The TV has no shuffle, so it gets the songs in the order they'd play here.
+        val order = if (player.shuffleModeEnabled) shuffledIndexes() else (0 until player.mediaItemCount).toList()
+        val items = order.map { player.getMediaItemAt(it) }
+        val start = order.indexOf(player.currentMediaItemIndex).coerceAtLeast(0)
+        val position = player.currentPosition
+        cp.repeatMode = player.repeatMode
+        session?.player = cp
+        activePlayer = cp
+        if (items.isNotEmpty()) {
+            val window = castWindow(items, start, position)
+            castPauseOnStart = !play
+            cp.setMediaItems(window.mediaItems, window.startIndex, window.startPositionMs)
+            cp.prepare()
+            cp.play()
+        }
+        PlayerWidget.update(this, cp)
+    }
+
+    /**
+     * The TV disconnected (or casting was stopped): the queue comes back to the phone at the song
+     * and place the TV had got to, paused, so the phone doesn't suddenly play out loud.
+     */
+    private fun stopCasting() {
+        if (casting) {
+            val ids = castIds
+            val queue = castEarlier + ids.mapNotNull(castBridge::original) + castLater
+            val index = castEarlier.size + castIndex.coerceIn(0, (ids.size - 1).coerceAtLeast(0))
+            logFinish()
+            session?.player = player
+            activePlayer = player
+            if (ids.isNotEmpty() && queue.isNotEmpty()) {
+                player.pause()
+                player.shuffleModeEnabled = false // the queue is already in the order it plays
+                player.setMediaItems(queue, index.coerceIn(0, queue.size - 1), castPosition)
+                player.prepare()
+            }
+            castPlayer?.let { player.repeatMode = it.repeatMode }
+        }
+        castBridge.stop()
+        castEarlier.clear()
+        castLater.clear()
+        castIds = emptyList()
+        castIndex = 0
+        castPosition = 0L
+        castAdding = false
+        castPauseOnStart = false
+        PlayerWidget.update(this, player)
+    }
+
+    /**
+     * Splits a new queue for the TV: the part it gets now (as items it can play, with the start
+     * moved to match), and the songs kept back in [castEarlier] and [castLater].
+     */
+    private fun castWindow(items: List<MediaItem>, startIndex: Int, positionMs: Long): MediaSession.MediaItemsWithStartPosition {
+        val start = startIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0))
+        val from = (start - CAST_BEHIND).coerceAtLeast(0)
+        val to = (start + 1 + CAST_AHEAD).coerceAtMost(items.size)
+        castEarlier.clear()
+        castEarlier += items.subList(0, from)
+        castLater.clear()
+        castLater += items.subList(to, items.size)
+        castAdding = false
+        val window = items.subList(from, to).mapNotNull(castBridge::castItem)
+        return MediaSession.MediaItemsWithStartPosition(window, start - from, positionMs)
+    }
+
+    /** Sends the TV more songs when it's near the end of what it has. */
+    private fun castMore() {
+        val cp = castPlayer ?: return
+        if (!casting || castAdding || castLater.isEmpty() || cp.currentTimeline.isEmpty) return
+        if (cp.mediaItemCount - cp.currentMediaItemIndex > CAST_REFILL_AT) return
+        val batch = ArrayList<MediaItem>()
+        while (batch.size < CAST_BATCH && castLater.isNotEmpty()) castBridge.castItem(castLater.removeFirst())?.let(batch::add)
+        if (batch.isEmpty()) return
+        castAdding = true
+        cp.addMediaItems(batch)
+    }
+
+    private fun enqueueOnTv(item: MediaItem, next: Boolean) {
+        val cp = castPlayer ?: return
+        // Songs kept back still play first, so "add to queue" goes after them.
+        if (!next && castLater.isNotEmpty()) {
+            castLater.addLast(item)
+            return
+        }
+        val tvItem = castBridge.castItem(item) ?: return
+        if (cp.mediaItemCount == 0) {
+            cp.setMediaItem(tvItem)
+            cp.prepare()
+            cp.play()
+            return
+        }
+        cp.addMediaItem(if (next) cp.currentMediaItemIndex + 1 else cp.mediaItemCount, tvItem)
+    }
+
+    private fun snapshotCast() {
+        val cp = castPlayer ?: return
+        if (cp.currentTimeline.isEmpty) return
+        castIndex = cp.currentMediaItemIndex
+        castPosition = cp.currentPosition.coerceAtLeast(0)
+    }
+
+    /** Messages for the screens (shown once). */
+    private fun castProblem(text: String) {
+        effectsPrefs.edit().putString(Effects.KEY_CAST_PROBLEM, "$text|${System.currentTimeMillis()}").apply()
+    }
+
+    private val castListener = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (!casting) return
+            if (isPlaying && castPauseOnStart) {
+                castPauseOnStart = false
+                castPlayer?.pause()
+            }
+            if (isPlaying) castBridge.keepAwake()
+            if (logItem == null) logItem = castPlayer?.currentMediaItem
+            logPlaying(isPlaying)
+            snapshotCast()
+            PlayerWidget.update(this@PlaybackService, current)
+        }
+
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (!casting) return
+            val moved = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
+            // "End of this song" sleep timer: stop as the next one starts.
+            if (moved && effectsPrefs.getBoolean(Effects.KEY_SLEEP_END_OF_SONG, false)) {
+                castPlayer?.pause()
+                clearSleep()
+            }
+            // The same song carrying on from the phone is one listen, not two.
+            if (moved || mediaItem?.mediaId != logItem?.mediaId) {
+                logFinish()
+                logItem = mediaItem
+                if (castPlayer?.isPlaying == true) logPlaying(true)
+            }
+            snapshotCast()
+            castMore()
+            PlayerWidget.update(this@PlaybackService, current)
+        }
+
+        override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+            if (!casting) return
+            val cp = castPlayer ?: return
+            castIds = (0 until cp.mediaItemCount).map { cp.getMediaItemAt(it).mediaId }
+            castAdding = false
+            snapshotCast()
+            castMore()
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (casting && playbackState == Player.STATE_ENDED && effectsPrefs.getBoolean(Effects.KEY_SLEEP_END_OF_SONG, false)) clearSleep()
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            if (!casting) return
+            castProblem("The TV couldn't play “${castPlayer?.currentMediaItem?.mediaMetadata?.title ?: "that song"}”.")
+        }
     }
 
     // ----- Session callbacks -----
@@ -1007,8 +1236,8 @@ class PlaybackService : MediaLibraryService() {
         ): ListenableFuture<SessionResult> {
             // ⏪ 10 / ⏩ 10 from the notification, lock screen or car.
             when (customCommand.customAction) {
-                CMD_REWIND -> { player.seekBack(); return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS)) }
-                CMD_FORWARD -> { player.seekForward(); return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS)) }
+                CMD_REWIND -> { current.seekBack(); return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS)) }
+                CMD_FORWARD -> { current.seekForward(); return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS)) }
             }
             if (!isOwnApp(controller)) {
                 return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_PERMISSION_DENIED))
@@ -1035,7 +1264,11 @@ class PlaybackService : MediaLibraryService() {
             controller: MediaSession.ControllerInfo,
             mediaItems: MutableList<MediaItem>,
         ): ListenableFuture<MutableList<MediaItem>> =
-            Futures.immediateFuture(keepTrusted(mediaItems, C.INDEX_UNSET).items)
+            Futures.immediateFuture(
+                keepTrusted(mediaItems, C.INDEX_UNSET).items.let { items ->
+                    if (casting) items.mapNotNullTo(ArrayList(), castBridge::castItem) else items
+                },
+            )
 
         override fun onSetMediaItems(
             mediaSession: MediaSession,
@@ -1049,12 +1282,12 @@ class PlaybackService : MediaLibraryService() {
                 val query = mediaItems.singleOrNull()?.requestMetadata?.searchQuery
                 val single = mediaItems.singleOrNull()?.mediaId?.takeIf { it.isNotEmpty() }
                 if (query != null || single != null) {
-                    return libraryExecutor.submit(Callable<MediaSession.MediaItemsWithStartPosition> {
+                    return forTv(libraryExecutor.submit(Callable<MediaSession.MediaItemsWithStartPosition> {
                         val (list, at) = if (query != null) carLibrary.search(query) to 0 else carLibrary.listContaining(single!!) ?: (emptyList<Song>() to 0)
                         val kept = keepTrusted(list.map { it.toMediaItem() }, at)
                         if (kept.items.isEmpty()) throw SecurityException("Nothing to play")
                         MediaSession.MediaItemsWithStartPosition(kept.items, kept.startIndex, 0)
-                    })
+                    }))
                 }
             }
             val kept = keepTrusted(mediaItems, startIndex)
@@ -1062,7 +1295,7 @@ class PlaybackService : MediaLibraryService() {
                 return Futures.immediateFailedFuture(SecurityException("Not songs on this phone"))
             }
             val position = if (kept.startMoved) 0 else startPositionMs
-            return Futures.immediateFuture(MediaSession.MediaItemsWithStartPosition(kept.items, kept.startIndex, position))
+            return forTv(Futures.immediateFuture(MediaSession.MediaItemsWithStartPosition(kept.items, kept.startIndex, position)))
         }
 
         /** A headphone/car "play" press after the app was closed picks up the last queue. */
@@ -1072,8 +1305,19 @@ class PlaybackService : MediaLibraryService() {
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
             val saved = loadSavedQueue()
                 ?: return Futures.immediateFailedFuture(UnsupportedOperationException("Nothing to resume"))
-            return Futures.immediateFuture(MediaSession.MediaItemsWithStartPosition(saved.items, saved.index, saved.position))
+            return forTv(Futures.immediateFuture(MediaSession.MediaItemsWithStartPosition(saved.items, saved.index, saved.position)))
         }
+
+        /** While casting, a new queue goes to the TV a part at a time (see [castWindow]). */
+        private fun forTv(
+            future: ListenableFuture<MediaSession.MediaItemsWithStartPosition>,
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> =
+            if (!casting) future
+            else Futures.transform(
+                future,
+                { castWindow(it.mediaItems, it.startIndex, it.startPositionMs) },
+                ContextCompat.getMainExecutor(this@PlaybackService),
+            )
     }
 }
 
