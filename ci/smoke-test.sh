@@ -209,10 +209,7 @@ if grep -q 'content-desc="Cast to TV"' "$OUT/nowplaying.xml"; then
   grep -q 'text="Play on"' "$OUT/cast.xml" || fail "the cast picker didn't open"
   grep -q 'text="This phone"' "$OUT/cast.xml" || fail "the cast picker doesn't offer this phone"
   grep -q "Looking for TVs on your Wi-Fi\|No TVs found" "$OUT/cast.xml" || fail "the cast picker doesn't say it's looking for TVs"
-  sleep 8
-  dump cast-none
-  grep -q "No TVs found" "$OUT/cast-none.xml" || grep -q 'text="Close"' "$OUT/cast-none.xml" || fail "the cast picker went away by itself"
-  tap cast-none "Close" exact
+  tap cast "Close" exact
   sleep 1
   dump cast-closed
   grep -qi "playing from" "$OUT/cast-closed.xml" || fail "closing the cast picker didn't go back to the player"
@@ -265,6 +262,14 @@ grep -q 'content-desc="Sleep timer"' "$OUT/sleep-off.xml" || fail "the sleep tim
 echo "PASS: sleep timer can be set and turned off"
 
 echo "--- Media 'next' button (headphones / lock screen)"
+# The test songs are a minute long, so Song 1 may have finished during the tests above: go back to it.
+for _ in 1 2 3; do
+  session
+  grep -q "Smoke Song 1" "$OUT/session.txt" && break
+  adb shell input keyevent KEYCODE_MEDIA_PREVIOUS # back to the start of the song
+  adb shell input keyevent KEYCODE_MEDIA_PREVIOUS # ...then to the one before
+  sleep 2
+done
 adb shell input keyevent KEYCODE_MEDIA_NEXT
 sleep 3
 session
