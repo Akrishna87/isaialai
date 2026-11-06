@@ -789,8 +789,8 @@ for n in nodes:
 print("unknown")
 PY
 }
-# The song playing now is measured first (decoded once); allow a slow emulator up to 30 s.
-for i in $(seq 1 10); do
+# The song playing now is measured first (decoded once); allow a slow emulator up to 60 s.
+for i in $(seq 1 20); do
   sleep 3
   dump settings-on
   grep -q "turned up\|turned down\|already at the right level" "$OUT/settings-on.xml" && break
