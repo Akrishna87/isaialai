@@ -48,6 +48,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import io.github.akrishna87.mymusic.CutKind
 import io.github.akrishna87.mymusic.MusicViewModel
+import io.github.akrishna87.mymusic.Screen
 import io.github.akrishna87.mymusic.Song
 import io.github.akrishna87.mymusic.SongCutter
 import kotlinx.coroutines.Dispatchers
@@ -197,9 +198,11 @@ fun CutScreen(vm: MusicViewModel, songId: String, ringtone: Boolean) {
                 val uri = SongCutter.saveToPhone(context, file, title, song.artist, k)
                 progress = null
                 if (k == CutKind.SONG) {
-                    vm.say("Saved “$title” to ${CutKind.SONG.folder}")
+                    vm.say("Saved “$title” in ${CutKind.SONG.folder}. Find your cuts any time: Library ⋮ → Your cuts")
                     vm.refreshLibrary()
                     vm.back()
+                    // Show where it went, with the new song in it.
+                    vm.open(Screen.Folder(CutKind.SONG.folder))
                 } else {
                     finishRingtone(uri, k)
                 }

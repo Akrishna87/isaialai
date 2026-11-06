@@ -41,7 +41,10 @@ A one-line-per-feature list, ready to share, is in [FEATURES.md](FEATURES.md).
   empty search box it shows colourful browse tiles for your top artists,
   folders and albums.
 - **Your Library** has filter chips for Songs, Albums, Artists, Composers,
-  Folders and Playlists. The ⋮ menu has **Find duplicate songs**.
+  Folders and Playlists. The ⋮ menu has **Your cuts** (songs you cut) and
+  **Find duplicate songs**. A song's ⋮ menu has **Delete from phone…**
+  (Android asks you to confirm; Android 11 and later, songs in the phone's
+  library).
 - **Music directors** (Composers): Tamil and other film songs list the
   singers as the artist, so this groups songs by the Composer tag instead
   (Ilaiyaraaja, A.R. Rahman, Anirudh…). Each music director's page shows
@@ -192,7 +195,8 @@ A one-line-per-feature list, ready to share, is in [FEATURES.md](FEATURES.md).
 - **Cut a song**: a song's ⋮ menu → **Cut song…**. Drag the two handles or
   type the start and end times (for example 0:10 to 0:25), nudge them by 5
   seconds, and tap **Play this part** to check it. Then save it as a new song
-  in Music/Isaialai cuts. The original isn't changed.
+  in Music/Isaialai cuts, which opens right after saving (and any time from
+  Library ⋮ → **Your cuts**). The original isn't changed.
 - **Make any song your ringtone**: ⋮ → **Set as ringtone…**. It starts as
   the first 30 seconds; pick the part you want and choose phone ringtone,
   notification sound or alarm sound. The first time, Android asks you to

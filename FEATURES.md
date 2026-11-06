@@ -36,6 +36,7 @@
 ⏯️ Continue where you left off, with a Continue listening row on Home.
 🎬 Downloaded songs grouped by movie, not lumped into one "Download" album.
 🧹 Duplicate finder to clean up songs saved twice.
+🗑️ Delete any song from its ⋮ menu (Android asks first), and find your cut songs under Library ⋮ → Your cuts.
 💾 Automatic backup of playlists, likes, play counts and settings to a folder in Download, with no internet.
 📲 Move to a new phone by copying that folder with any file manager, then tap Restore.
 🗜️ Pack all your songs (and playlists) into one zip, and unpack it on your new phone.

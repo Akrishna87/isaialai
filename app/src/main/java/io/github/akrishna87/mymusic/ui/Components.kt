@@ -210,6 +210,9 @@ fun SongMenu(
         if (playlistId != null) {
             MenuItem("Remove from this playlist", Icons.Rounded.RemoveCircleOutline) { onDismiss(); vm.playlists.remove(playlistId, song.id) }
         }
+        if (vm.canDelete(song)) {
+            MenuItem("Delete from phone…", Icons.Rounded.DeleteOutline) { onDismiss(); vm.deleteRequest = song }
+        }
     }
 }
 

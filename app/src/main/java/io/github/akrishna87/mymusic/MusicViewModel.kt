@@ -110,6 +110,15 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     val cast = CastRoutes(app).also { it.onProblem = { text -> messageChannel.trySend(text) } }
     var showCast by mutableStateOf(false)
 
+    /** A song waiting for Android's "Allow Isaialai to delete?" (see ui/App.kt). */
+    var deleteRequest by mutableStateOf<Song?>(null)
+
+    /**
+     * Whether Isaialai can delete [song]'s file (Android asks you first): songs in the phone's
+     * library on Android 11 and later. Songs in folders you added are deleted from the Files app.
+     */
+    fun canDelete(song: Song): Boolean = android.os.Build.VERSION.SDK_INT >= 30 && song.id.toLongOrNull() != null
+
     /** Song details corrected in the app; see [SongEdits]. */
     private val edits = SongEdits(app)
     /** The song whose details are being edited, if the edit dialog is open. */
