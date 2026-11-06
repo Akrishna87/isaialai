@@ -70,6 +70,11 @@ fun LibraryScreen(vm: MusicViewModel) {
                         onClick = { menu = false; vm.open(Screen.Recap) },
                     )
                     DropdownMenuItem(
+                        text = { Text("Your cuts") },
+                        leadingIcon = { Icon(Icons.Rounded.ContentCut, contentDescription = null, tint = Palette.SubText) },
+                        onClick = { menu = false; vm.open(Screen.Folder(io.github.akrishna87.mymusic.CutKind.SONG.folder)) },
+                    )
+                    DropdownMenuItem(
                         text = { Text("Find duplicate songs") },
                         leadingIcon = { Icon(Icons.Rounded.ContentCopy, contentDescription = null, tint = Palette.SubText) },
                         onClick = { menu = false; vm.open(Screen.Duplicates) },

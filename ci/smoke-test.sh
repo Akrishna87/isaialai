@@ -1220,6 +1220,43 @@ D=$(grep -o "duration=[0-9]*" <<<"$cut" | head -1 | cut -d= -f2)
 [ "${D:-0}" -ge 14000 ] && [ "${D:-0}" -le 16500 ] || fail "the cut is ${D:-0} ms long, not about 15 s"
 echo "PASS: a song can be cut, and the 15 s part is saved as a new song"
 
+echo "--- After cutting: the cuts folder opens, and a song can be deleted from its menu"
+for _ in $(seq 1 10); do
+  dump cuts-folder
+  grep -q 'text="Smoke Song 1 (cut)"' "$OUT/cuts-folder.xml" && break
+  sleep 2
+done
+shot 36b-cuts-folder
+grep -q 'text="Isaialai cuts"' "$OUT/cuts-folder.xml" || fail "after saving, the Isaialai cuts folder didn't open"
+grep -q 'text="Smoke Song 1 (cut)"' "$OUT/cuts-folder.xml" || fail "the new cut isn't shown in the Isaialai cuts folder"
+echo "PASS: after saving a cut, Isaialai shows it in the Isaialai cuts folder"
+menu_item cuts-folder "Smoke Song 1 (cut)" "Delete from phone"
+sleep 3
+dump cut-delete-confirm
+shot 36c-delete-confirm
+tap cut-delete-confirm "Allow"
+sleep 6
+gone=$(adb shell content query --uri content://media/external/audio/media --projection title --where "title=\'Smoke\ Song\ 1\ \(cut\)\'" || true)
+echo "after deleting: $gone"
+grep -q "title=" <<<"$gone" && fail "deleting from the song menu didn't delete the file"
+adb shell content query --uri content://media/external/audio/media --projection title --where "title=\'Smoke\ Song\ 1\'" | grep -q "title=" || fail "the original song was deleted too"
+echo "PASS: a song's ⋮ menu deletes it from the phone (after Android asks)"
+adb shell input keyevent KEYCODE_BACK # cuts folder -> Library
+sleep 2
+
+echo "--- Your cuts in the Library menu"
+dump lib-cuts
+tap lib-cuts "More options"
+sleep 1
+dump lib-cuts-menu
+tap lib-cuts-menu "Your cuts" exact
+sleep 2
+dump your-cuts
+grep -q "No cuts yet\|Isaialai cuts" "$OUT/your-cuts.xml" || fail "Library ⋮ → Your cuts didn't open the cuts folder"
+echo "PASS: Library ⋮ → Your cuts opens the cuts folder"
+adb shell input keyevent KEYCODE_BACK
+sleep 2
+
 echo "--- Set as ringtone"
 adb shell appops set "$PKG" WRITE_SETTINGS default || true
 BEFORE_RINGTONE=$(adb shell settings get system ringtone)

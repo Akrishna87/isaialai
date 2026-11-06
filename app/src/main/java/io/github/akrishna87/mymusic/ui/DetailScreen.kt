@@ -164,7 +164,13 @@ fun DetailScreen(vm: MusicViewModel, screen: Screen) {
 
     Box(Modifier.fillMaxSize().background(Palette.Background)) {
         if (detail == null) {
-            Text("This is empty now.", Modifier.align(Alignment.Center), color = Palette.SubText)
+            val cuts = (screen as? Screen.Folder)?.path == io.github.akrishna87.mymusic.CutKind.SONG.folder
+            Text(
+                if (cuts) "No cuts yet (or still loading). Use a song's ⋮ menu → Cut song… and saved cuts show up here."
+                else "This is empty now.",
+                Modifier.align(Alignment.Center).padding(32.dp),
+                color = Palette.SubText,
+            )
         } else {
             LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = LocalBottomSpace.current)) {
                 item { Hero(vm, detail, color) }
