@@ -547,6 +547,29 @@ dump search-results
 shot 12-search-results
 grep -q "Smoke Hidden Song" "$OUT/search-results.xml" || fail "searching for 'Hidden' didn't find the song"
 echo "PASS: search finds songs"
+grep -q 'content-desc="Search by voice"' "$OUT/search.xml" || fail "the search box has no voice search button"
+tap search-results "Clear search"
+sleep 1
+adb shell input text "smokke%shiden" # misspelt, the way voice typing might spell it
+sleep 3
+dump search-fuzzy
+grep -q "Smoke Hidden Song" "$OUT/search-fuzzy.xml" || fail "search doesn't forgive spelling ('smokke hiden' didn't find Smoke Hidden Song)"
+echo "PASS: search forgives spelling (double letters, Tamil-style spellings)"
+tap search-fuzzy "Clear search"
+sleep 1
+if adb shell dumpsys input_method | grep -q "mInputShown=true"; then adb shell input keyevent KEYCODE_BACK; sleep 1; fi
+dump search-mic
+tap search-mic "Search by voice"
+sleep 4
+# The emulator may or may not have voice typing: either its listening screen opens, or Isaialai
+# says it isn't set up. Either way, come back to Isaialai.
+if ! adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumedActivity" | grep -q "$PKG"; then
+  echo "(voice typing opened: $(adb shell dumpsys activity activities | grep -E 'topResumedActivity' | head -1))"
+  adb shell input keyevent KEYCODE_BACK
+  sleep 2
+fi
+adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumedActivity" | grep -q "$PKG" || fail "Isaialai didn't come back after voice search"
+echo "PASS: the voice search button opens voice typing (or says it isn't set up) and comes back"
 
 echo "--- Home after listening"
 # Close the search keyboard first: it covers the tab bar.

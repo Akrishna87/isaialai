@@ -40,6 +40,10 @@ A one-line-per-feature list, ready to share, is in [FEATURES.md](FEATURES.md).
 - **Search** matches songs, artists, albums and folders as you type. With an
   empty search box it shows colourful browse tiles for your top artists,
   folders and albums.
+  Tap 🎤 in the search box to **search by voice** (Android's own voice typing
+  listens; Isaialai never uses the microphone itself). Search forgives
+  spelling, so "ilayaraja", "Ilaiyaraaja", "thalapathy" / "Talapathi" and "AR
+  Rahman" / "A.R. Rahman" all find the same songs, typed or spoken.
 - **Your Library** has filter chips for Songs, Albums, Artists, Composers,
   Folders and Playlists. The ⋮ menu has **Your cuts** (songs you cut) and
   **Find duplicate songs**. A song's ⋮ menu has **Delete from phone…**

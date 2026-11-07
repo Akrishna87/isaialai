@@ -15,6 +15,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -31,7 +32,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.speech.RecognizerIntent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import io.github.akrishna87.mymusic.ArtistGroup
+import io.github.akrishna87.mymusic.SearchText
 import io.github.akrishna87.mymusic.LibraryGrouping
 import io.github.akrishna87.mymusic.MusicViewModel
 import io.github.akrishna87.mymusic.Screen
@@ -43,6 +51,28 @@ private class BrowseTile(val title: String, val key: String, val song: Song?, va
 fun SearchScreen(vm: MusicViewModel) {
     val query = vm.query.trim()
     val focusManager = LocalFocusManager.current
+    // Voice search: Android's own voice typing listens and hands back what it heard (Isaialai
+    // itself never uses the microphone). Of its guesses, the first that finds something is used.
+    val voice = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
+        val heard = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS).orEmpty().filter { it.isNotBlank() }
+        val pick = heard.firstOrNull { h -> vm.songs.any { it.matches(h) } } ?: heard.firstOrNull()
+        if (pick != null) {
+            vm.query = pick
+            focusManager.clearFocus()
+        }
+    }
+    fun listen() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(RecognizerIntent.EXTRA_PROMPT, "Say a song, movie, singer or music director")
+            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+        try {
+            voice.launch(intent)
+        } catch (e: ActivityNotFoundException) {
+            vm.say("Voice typing isn't set up on this phone. Turn on Google voice typing in Settings → System → Keyboard.")
+        }
+    }
     Column(Modifier.fillMaxSize().background(Palette.Background)) {
         Text(
             "Search",
@@ -57,6 +87,8 @@ fun SearchScreen(vm: MusicViewModel) {
             trailingIcon = {
                 if (vm.query.isNotEmpty()) {
                     IconButton(onClick = { vm.query = "" }) { Icon(Icons.Rounded.Close, contentDescription = "Clear search") }
+                } else {
+                    IconButton(onClick = ::listen) { Icon(Icons.Rounded.Mic, contentDescription = "Search by voice") }
                 }
             },
             singleLine = true,
@@ -149,10 +181,10 @@ private fun SearchResults(vm: MusicViewModel, query: String) {
     val songs = vm.songs
     val matchedSongs = remember(songs, query) { songs.filter { it.matches(query) }.take(60) }
     val albums = remember(songs, query) {
-        LibraryGrouping.albums(songs).filter { it.name.contains(query, true) || it.artist.contains(query, true) }.take(15)
+        LibraryGrouping.albums(songs).filter { SearchText.matches(query, it.name, it.artist) }.take(15)
     }
-    val artists = remember(songs, query) { LibraryGrouping.artists(songs).filter { it.name.contains(query, true) }.take(15) }
-    val composers = remember(songs, query) { LibraryGrouping.composers(songs).filter { it.name.contains(query, true) }.take(15) }
+    val artists = remember(songs, query) { LibraryGrouping.artists(songs).filter { SearchText.matches(query, it.name) }.take(15) }
+    val composers = remember(songs, query) { LibraryGrouping.composers(songs).filter { SearchText.matches(query, it.name) }.take(15) }
     val folders = remember(songs, query) { LibraryGrouping.searchFolders(songs, query).take(10) }
 
     if (matchedSongs.isEmpty() && albums.isEmpty() && artists.isEmpty() && composers.isEmpty() && folders.isEmpty()) {

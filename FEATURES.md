@@ -4,7 +4,7 @@
 📂 Finds songs in every folder, even ones other players miss (WhatsApp, Telegram, downloads).
 🗂️ Browse your folders like a file manager.
 🏠 Home shows Jump back in, Mixes for you, Your recap, Recently added, Your artists, On repeat and Rediscover.
-🔍 Search songs, artists, albums, music directors and folders as you type.
+🔍 Search songs, artists, albums, music directors and folders as you type, or by voice 🎤. It forgives spelling (Ilayaraja = Ilaiyaraaja).
 🎼 Browse by music director (Ilaiyaraaja, A.R. Rahman, Anirudh…) with all their movies.
 ✨ Smart playlists: Most played, Recently added, Not played in a while, Never played.
 🪄 Instant mix: tap any song (or artist, movie, music director) for a mix of songs like it.
