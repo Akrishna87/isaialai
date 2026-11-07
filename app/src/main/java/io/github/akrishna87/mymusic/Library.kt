@@ -34,8 +34,13 @@ data class Song(
     val albumArtUri: Uri get() = ContentUris.withAppendedId(ALBUM_ART_URI, albumId)
     val subtitle: String get() = if (album.isNotEmpty()) "$artist · $album" else artist
 
+    /** The song's details in [SearchText]'s spelling-forgiving form, worked out when first searched. */
+    private val searchKey: String by lazy { SearchText.fold(listOf(title, artist, album, composer, fileName, folder).joinToString(" ")) }
+
     fun matches(query: String): Boolean =
-        query.isBlank() || listOf(title, artist, album, composer, fileName, folder).any { it.contains(query.trim(), ignoreCase = true) }
+        query.isBlank() ||
+            listOf(title, artist, album, composer, fileName, folder).any { it.contains(query.trim(), ignoreCase = true) } ||
+            SearchText.matchesFolded(query, searchKey)
 
     companion object {
         val ALBUM_ART_URI: Uri = Uri.parse("content://media/external/audio/albumart")
