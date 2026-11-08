@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -164,8 +166,16 @@ private fun SongsList(vm: MusicViewModel) {
 
 @Composable
 private fun AlbumsGrid(vm: MusicViewModel) {
-    val albums = remember(vm.songs) { LibraryGrouping.albums(vm.songs) }
-    if (albums.isEmpty()) return EmptyHint("No albums yet.")
+    val all = remember(vm.songs) { LibraryGrouping.albums(vm.songs) }
+    if (all.isEmpty()) return EmptyHint("No albums yet.")
+    val liked = vm.likedAlbums
+    var onlyLiked by rememberSaveable { mutableStateOf(false) }
+    // Liked albums first (most recently liked first), then the rest as before.
+    val albums = remember(all, liked, onlyLiked) {
+        val order = liked.withIndex().associate { (i, k) -> k to i }
+        val likedOnes = all.filter { it.key in order }.sortedBy { order[it.key] }
+        if (onlyLiked) likedOnes else likedOnes + all.filter { it.key !in order }
+    }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(150.dp),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = LocalBottomSpace.current),
@@ -173,15 +183,40 @@ private fun AlbumsGrid(vm: MusicViewModel) {
         verticalArrangement = Arrangement.spacedBy(20.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
+        if (liked.isNotEmpty()) {
+            item(key = "liked-filter", span = { GridItemSpan(maxLineSpan) }) {
+                FilterChip(
+                    selected = onlyLiked,
+                    onClick = { onlyLiked = !onlyLiked },
+                    label = { Text("Liked albums (${all.count { it.key in liked }})") },
+                    leadingIcon = { Icon(Icons.Rounded.Favorite, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                )
+            }
+        }
+        if (onlyLiked && albums.isEmpty()) {
+            item(key = "liked-empty", span = { GridItemSpan(maxLineSpan) }) {
+                Text("None of your liked albums are on this phone.", color = Palette.SubText, fontSize = 14.sp)
+            }
+        }
         items(albums, key = { it.key }) { a ->
             Column(Modifier.clickable { vm.open(Screen.Album(a.key)) }) {
-                ArtImage(
-                    a.songs.first(),
-                    Modifier.fillMaxWidth().aspectRatio(1f).shadow(8.dp, RoundedCornerShape(6.dp)),
-                    sizePx = 400,
-                    shape = RoundedCornerShape(6.dp),
-                    iconSize = 40.dp,
-                )
+                Box {
+                    ArtImage(
+                        a.songs.first(),
+                        Modifier.fillMaxWidth().aspectRatio(1f).shadow(8.dp, RoundedCornerShape(6.dp)),
+                        sizePx = 400,
+                        shape = RoundedCornerShape(6.dp),
+                        iconSize = 40.dp,
+                    )
+                    if (a.key in liked) {
+                        Icon(
+                            Icons.Rounded.Favorite,
+                            contentDescription = "Liked",
+                            tint = Color.White,
+                            modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(20.dp),
+                        )
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
                 Text(a.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
                 Text("${a.artist} · ${a.songs.size}", color = Palette.SubText, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)

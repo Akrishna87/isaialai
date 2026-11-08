@@ -103,7 +103,9 @@ object AlbumNames {
 
     /** Songs with the same album name are one album, wherever they're saved. Songs with none stand alone. */
     fun keyFor(album: String, songId: String): String =
-        if (album.isBlank()) "$NONE$songId" else "album:" + album.trim().lowercase()
+        if (album.isBlank()) "$NONE$songId" else KEY_PREFIX + album.trim().lowercase()
+
+    const val KEY_PREFIX = "album:"
 
     const val NONE = "none:"
 

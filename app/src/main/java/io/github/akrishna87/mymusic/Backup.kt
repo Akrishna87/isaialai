@@ -206,8 +206,11 @@ object BackupFile {
         val edits: List<Pair<SongRef, SongEdits.Edit>>,
         val settings: JSONObject?,
         val listens: List<Heard> = emptyList(),
+        /** Albums and movies you liked, by name (lower case). */
+        val likedAlbums: List<String> = emptyList(),
     ) {
-        val isEmpty: Boolean get() = playlists.isEmpty() && liked.isEmpty() && plays.isEmpty() && edits.isEmpty() && listens.isEmpty()
+        val isEmpty: Boolean get() =
+            playlists.isEmpty() && liked.isEmpty() && plays.isEmpty() && edits.isEmpty() && listens.isEmpty() && likedAlbums.isEmpty()
     }
 
     fun write(c: Contents): String {
@@ -223,6 +226,7 @@ object BackupFile {
             .put("createdMs", c.createdMs)
         o.put("playlists", JSONArray(c.playlists.map { (name, list) -> JSONObject().put("name", name).put("songs", refs(list)) }))
         o.put("liked", refs(c.liked))
+        o.put("likedAlbums", JSONArray(c.likedAlbums))
         o.put("history", refs(c.history))
         o.put("plays", JSONArray(c.plays.map { JSONObject().put("song", ref(it.song)).put("count", it.count).put("last", it.lastPlayed) }))
         o.put(
@@ -257,6 +261,9 @@ object BackupFile {
                 createdMs = o.optLong("createdMs"),
                 playlists = objects("playlists").map { it.optString("name").ifBlank { "Playlist" } to list(it.optJSONArray("songs")) },
                 liked = list(o.optJSONArray("liked")),
+                likedAlbums = o.optJSONArray("likedAlbums")?.let { a ->
+                    List(a.length()) { a.optString(it) }.map { it.trim() }.filter { it.isNotEmpty() && it.length <= 300 }.distinct()
+                }.orEmpty(),
                 history = list(o.optJSONArray("history")),
                 plays = objects("plays").mapNotNull { p -> at(p.optInt("song", -1))?.let { Play(it, p.optInt("count"), p.optLong("last")) } },
                 edits = objects("edits").mapNotNull { e ->

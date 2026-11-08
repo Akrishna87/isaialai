@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.SaveAlt
 import androidx.compose.material.icons.rounded.Shuffle
@@ -69,6 +70,8 @@ private data class DetailData(
     /** A music director's movies and albums, shown above their songs. */
     val albums: List<AlbumGroup> = emptyList(),
     val smart: SmartPlaylist? = null,
+    /** Set for album pages, to like the album. */
+    val albumKey: String? = null,
 ) {
     val subtitle: String
         get() = listOf(kind.label, byline, songCount(songs.size), totalTime(songs)).filter { it.isNotEmpty() }.joinToString(" · ")
@@ -89,7 +92,7 @@ private fun detailFor(vm: MusicViewModel, screen: Screen): DetailData? {
     return when (screen) {
         is Screen.Album -> remember(screen, songs) {
             LibraryGrouping.albums(songs.filter { it.albumKey == screen.key }).firstOrNull()?.let {
-                DetailData(DetailKind.ALBUM, it.name, it.songs, byline = it.artist)
+                DetailData(DetailKind.ALBUM, it.name, it.songs, byline = it.artist, albumKey = it.key)
             }
         }
         is Screen.Artist -> remember(screen, songs) {
@@ -338,6 +341,17 @@ private fun Hero(vm: MusicViewModel, detail: DetailData, color: Color) {
             if (detail.songs.isNotEmpty()) {
                 IconButton(onClick = { vm.instantMix(detail.title, detail.songs) }) {
                     Icon(Icons.Rounded.AutoAwesome, "Instant mix", tint = Palette.SubText, modifier = Modifier.size(26.dp))
+                }
+            }
+            detail.albumKey?.let { key ->
+                val liked = vm.isAlbumLiked(key)
+                IconButton(onClick = { vm.toggleAlbumLike(key, detail.title) }) {
+                    Icon(
+                        if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                        if (liked) "Remove from liked albums" else "Like this album",
+                        tint = if (liked) MaterialTheme.colorScheme.primary else Palette.SubText,
+                        modifier = Modifier.size(28.dp),
+                    )
                 }
             }
             Spacer(Modifier.weight(1f))

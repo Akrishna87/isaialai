@@ -110,6 +110,30 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     val cast = CastRoutes(app).also { it.onProblem = { text -> messageChannel.trySend(text) } }
     var showCast by mutableStateOf(false)
 
+    /** Albums and movies you've liked (♥ on the album's page), as album keys, most recent first. */
+    var likedAlbums by mutableStateOf(loadLikedAlbums()); private set
+
+    fun isAlbumLiked(key: String): Boolean = key in likedAlbums
+
+    fun toggleAlbumLike(key: String, name: String) {
+        val liked = key !in likedAlbums
+        likedAlbums = if (liked) listOf(key) + likedAlbums else likedAlbums - key
+        saveLikedAlbums()
+        messageChannel.trySend(if (liked) "Added “$name” to your liked albums" else "Removed “$name” from your liked albums")
+        requestBackup()
+    }
+
+    private fun loadLikedAlbums(): List<String> = try {
+        val arr = org.json.JSONArray(prefs.getString("likedAlbums", "[]"))
+        List(arr.length()) { arr.getString(it) }.distinct()
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    private fun saveLikedAlbums() {
+        prefs.edit().putString("likedAlbums", org.json.JSONArray(likedAlbums).toString()).apply()
+    }
+
     /** A song waiting for Android's "Allow Isaialai to delete?" (see ui/App.kt). */
     var deleteRequest by mutableStateOf<Song?>(null)
 
@@ -839,6 +863,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         val counts = HashMap(playCounts)
         val last = HashMap(lastPlayed)
         val edited = edits.all()
+        val albumsLiked = likedAlbums
         val byId = rawSongs.associateBy { it.id }
         return withContext(Dispatchers.IO) {
             val cache = RefCache.load(app)
@@ -857,13 +882,14 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
                 listens = PlayLog.read(app).map { l ->
                     BackupFile.Heard(l.at, ref(l.songId) ?: SongRef("", l.title, l.artist, l.album), l.ms)
                 },
+                likedAlbums = albumsLiked.map { it.removePrefix(AlbumNames.KEY_PREFIX) },
             )
             if (contents.isEmpty && !force) return@withContext null
             val files = LinkedHashMap<String, String>()
             val sameAs = HashMap<String, String>()
             files[BackupFile.NAME] = BackupFile.write(contents)
             // The time it was made changes every time; only rewrite the file when the rest does.
-            sameAs[BackupFile.NAME] = BackupFile.write(BackupFile.Contents(0, contents.playlists, contents.liked, contents.history, contents.plays, contents.edits, contents.settings, contents.listens))
+            sameAs[BackupFile.NAME] = BackupFile.write(BackupFile.Contents(0, contents.playlists, contents.liked, contents.history, contents.plays, contents.edits, contents.settings, contents.listens, contents.likedAlbums))
             val m3u = listOf("Liked songs" to contents.liked).filter { it.second.isNotEmpty() } + contents.playlists
             for ((name, songs) in m3u) {
                 var file = "$PLAYLISTS_DIR/" + M3u.fileName(name)
@@ -912,6 +938,11 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         var added = 0
         plan.playlists.forEach { (name, ids) -> added += playlists.importPlaylist(name, ids) }
         val liked = playlists.likeAll(plan.liked)
+        val newAlbums = plan.likedAlbums.map { AlbumNames.keyFor(it, "") }.filter { it != AlbumNames.keyFor("", "") && it !in likedAlbums }
+        if (newAlbums.isNotEmpty()) {
+            likedAlbums = likedAlbums + newAlbums
+            saveLikedAlbums()
+        }
         for ((id, count, at) in plan.plays) {
             playCounts[id] = maxOf(playCounts[id] ?: 0, count)
             lastPlayed[id] = maxOf(lastPlayed[id] ?: 0L, at)
@@ -940,13 +971,14 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         val what = buildList {
             if (plan.playlists.isNotEmpty()) add(if (plan.playlists.size == 1) "“${plan.playlists[0].first}”" else "${plan.playlists.size} playlists")
             if (plan.liked.isNotEmpty()) add("${plan.liked.size} liked ${if (plan.liked.size == 1) "song" else "songs"}")
+            if (plan.likedAlbums.isNotEmpty()) add("${plan.likedAlbums.size} liked ${if (plan.likedAlbums.size == 1) "album" else "albums"}")
             if (plan.plays.isNotEmpty() || plan.listens.isNotEmpty()) add("listening history")
             if (withSettings && plan.settings != null) add("settings")
         }
         val text = if (what.isEmpty()) "Nothing new to restore" else "Restored " + what.joinToString(", ").replace(Regex(", ([^,]*)$"), " and $1")
         val missing = if (plan.missing == 0) "" else
             "\n${songCount(plan.missing)} ${if (plan.missing == 1) "isn't" else "aren't"} on this phone. Copy your music over, then restore again to add ${if (plan.missing == 1) "it" else "them"}."
-        if (added + liked == 0 && plan.missing == 0 && what.isEmpty()) messageChannel.trySend("Already up to date")
+        if (added + liked + newAlbums.size == 0 && plan.missing == 0 && what.isEmpty()) messageChannel.trySend("Already up to date")
         else messageChannel.trySend(text + missing)
     }
 

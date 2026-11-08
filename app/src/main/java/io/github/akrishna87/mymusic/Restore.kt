@@ -29,6 +29,8 @@ class RestorePlan(
     val missing: Int,
     /** The backup folder, to keep backing up into after restoring (so there's one backup, not two). */
     val adoptFolder: Uri?,
+    /** Albums and movies liked on the other phone, by name. */
+    val likedAlbums: List<String> = emptyList(),
 ) {
     val songsInPlaylists: Int get() = playlists.sumOf { it.second.size }
 
@@ -102,6 +104,7 @@ class RestorePlan(
                 found = found,
                 missing = core.size - found,
                 adoptFolder = adopt,
+                likedAlbums = c.likedAlbums,
             )
         }
 

@@ -51,6 +51,7 @@ enum class HomeSection(val label: String) {
     SHORTCUTS("Shortcuts"),
     CONTINUE("Continue listening"),
     JUMP_BACK_IN("Jump back in"),
+    LIKED_ALBUMS("Your albums"),
     MIXES("Mixes for you"),
     RECAP("Your recap"),
     RECENTLY_ADDED("Recently added"),
@@ -97,6 +98,11 @@ fun HomeScreen(vm: MusicViewModel) {
     }
     // A different handful of albums each day.
     val rediscover = remember(albums) { albums.shuffled(Random(LocalDate.now().toEpochDay())).take(10) }
+    val likedAlbums = vm.likedAlbums
+    val yourAlbums = remember(albums, likedAlbums) {
+        val byKey = albums.associateBy { it.key }
+        likedAlbums.mapNotNull { byKey[it] }.take(15)
+    }
 
     val resumeVersion = vm.resumeVersion
     val continueListening = remember(byId, resumeVersion, vm.resumeMode) { vm.continueListening() }
@@ -170,6 +176,11 @@ fun HomeScreen(vm: MusicViewModel) {
             }
             HomeSection.RECAP -> item(key = section.name) {
                 RecapCard(month, onClick = { vm.open(Screen.Recap) })
+            }
+            HomeSection.LIKED_ALBUMS -> item(key = section.name) {
+                CardRow("Your albums", yourAlbums, { it.key }) { a ->
+                    AlbumCard(a, onClick = { vm.open(Screen.Album(a.key)) })
+                }
             }
             HomeSection.RECENTLY_ADDED -> item(key = section.name) {
                 CardRow("Recently added", newest, { it.key }) { a ->
