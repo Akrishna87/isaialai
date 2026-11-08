@@ -1000,8 +1000,35 @@ dump movie-page
 grep -q 'text="Album"\|text="Album · ' "$OUT/movie-page.xml" || grep -q 'Album ·' "$OUT/movie-page.xml" || fail "tapping the movie in Jump back in didn't open its album page"
 python3 "$HERE/find_text.py" "$OUT/movie-page.xml" "Arabic Test" > /dev/null || fail "the movie page doesn't list its song"
 echo "PASS: Jump back in opens the movie, and shows songs without one as themselves"
+
+echo "--- Like an album"
+tap movie-page "Like this album"
+sleep 2
+dump movie-liked
+grep -q 'content-desc="Remove from liked albums"' "$OUT/movie-liked.xml" || fail "the album's heart didn't turn on"
 adb shell input keyevent KEYCODE_BACK
+sleep 2
+dump home-liked-album
+grep -q 'text="Your albums"' "$OUT/home-liked-album.xml" || { scroll_step; dump home-liked-album; }
+grep -q 'text="Your albums"' "$OUT/home-liked-album.xml" || fail "Home has no Your albums row after liking an album"
+shot 30b-your-albums
+dump nav-liked-albums
+tap nav-liked-albums "Library"
+sleep 2
+chip "Albums"
+sleep 2
+dump lib-liked-albums
+grep -q 'text="Liked albums (1)"' "$OUT/lib-liked-albums.xml" || fail "Library → Albums has no Liked albums filter"
+tap lib-liked-albums "Liked albums (1)"
 sleep 1
+dump lib-only-liked
+grep -q 'text="Test Movie"' "$OUT/lib-only-liked.xml" || fail "the Liked albums filter doesn't show the liked album"
+tap lib-only-liked "Liked albums (1)" # back to all albums
+sleep 1
+echo "PASS: an album can be liked, shows on Home (Your albums) and first in Library → Albums"
+dump nav-home-again
+tap nav-home-again "Home" exact
+sleep 2
 
 echo "--- Change cover art (song with no cover)"
 adb shell content call --uri content://media --method scan_volume --arg external_primary > /dev/null 2>&1 || true
@@ -1037,8 +1064,17 @@ adb shell input tap $PHOTO
 sleep 5
 dump after-cover
 grep -q "Cover changed" "$OUT/after-cover.xml" || echo "(note: didn't catch the 'Cover changed' message)"
-tap after-cover "Plain Download Song" last # the mini player: it's the song playing
+echo "playing before opening the player: $(now_playing)"
+tap after-cover "Plain Download Song" last # the mini player, if it's the song playing
 sleep 3
+dump cover-player
+if ! grep -qi "playing from" "$OUT/cover-player.xml"; then
+  # It wasn't the song playing, so that tap played it from the list; now the mini player shows it.
+  tap cover-player "Plain Download Song" last
+  sleep 3
+  dump cover-player
+fi
+grep -qi "playing from" "$OUT/cover-player.xml" || fail "the full player didn't open for Plain Download Song"
 shot 34-custom-cover
 read -r R G B < <(adb exec-out screencap | python3 "$HERE/pixel.py" $((W / 2)) $((H * 38 / 100)))
 echo "cover colour on the full player: $R $G $B"
@@ -1573,7 +1609,7 @@ shot 65-home-rows-settings
 tap_here "Your artists" # the row's switch
 dump home-rows-after
 [ "$(switch_state home-rows-after "Your artists")" = off ] || fail "the 'Your artists' switch didn't turn off"
-for _ in 1 2 3 4; do tap_here "Move Your recap up"; done
+for _ in 1 2 3 4 5; do tap_here "Move Your recap up"; done
 start_chip "Library"
 sleep 1
 fresh_start

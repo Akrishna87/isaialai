@@ -247,6 +247,10 @@ A one-line-per-feature list, ready to share, is in [FEATURES.md](FEATURES.md).
 - **Liked songs**: tap ♥ on the mini player or the full player, or use any
   song's ⋮ menu. Liked songs is a playlist at the top of your Library and on
   Home.
+- **Liked albums**: tap ♥ on an album or movie page. Liked albums come first
+  in Library → Albums (with a **Liked albums** filter), get their own **Your
+  albums** row on Home, and are in the backup. Liking an album doesn't like
+  each of its songs.
 - **Folders** works like a file manager. Start at the top (Music, Download,
   SD card…) and tap into subfolders. Every folder has **Play** and
   **Shuffle**, which include everything inside it.

@@ -13,6 +13,7 @@
 📊 Your recap: listening time, top songs, artists, music directors and movies by month or year.
 🎨 Pick your accent colour, rearrange or hide Home's rows, and choose the opening tab.
 ❤️ Liked songs and your own playlists, which you can reorder by dragging.
+💿 Like whole albums and movies: they come first in Albums and get a Your albums row on Home.
 📝 Lyrics that scroll along with the song (tap a line to jump there).
 🎚️ Equaliser with presets and bass boost.
 🔊 Volume boost up to 200%, like VLC.
