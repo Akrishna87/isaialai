@@ -1331,6 +1331,12 @@ grep -q "No cuts yet\|Isaialai cuts" "$OUT/your-cuts.xml" || fail "Library ⋮ �
 echo "PASS: Library ⋮ → Your cuts opens the cuts folder"
 adb shell input keyevent KEYCODE_BACK
 sleep 2
+# Deleting the cut emptied the queue; play a song again, as the tests after this expect.
+chip "Songs"
+sleep 2
+dump replay
+tap replay "Smoke Song 1" exact
+sleep 3
 
 echo "--- Set as ringtone"
 adb shell appops set "$PKG" WRITE_SETTINGS default || true
