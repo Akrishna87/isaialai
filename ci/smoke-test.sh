@@ -1064,8 +1064,17 @@ adb shell input tap $PHOTO
 sleep 5
 dump after-cover
 grep -q "Cover changed" "$OUT/after-cover.xml" || echo "(note: didn't catch the 'Cover changed' message)"
-tap after-cover "Plain Download Song" last # the mini player: it's the song playing
+echo "playing before opening the player: $(now_playing)"
+tap after-cover "Plain Download Song" last # the mini player, if it's the song playing
 sleep 3
+dump cover-player
+if ! grep -qi "playing from" "$OUT/cover-player.xml"; then
+  # It wasn't the song playing, so that tap played it from the list; now the mini player shows it.
+  tap cover-player "Plain Download Song" last
+  sleep 3
+  dump cover-player
+fi
+grep -qi "playing from" "$OUT/cover-player.xml" || fail "the full player didn't open for Plain Download Song"
 shot 34-custom-cover
 read -r R G B < <(adb exec-out screencap | python3 "$HERE/pixel.py" $((W / 2)) $((H * 38 / 100)))
 echo "cover colour on the full player: $R $G $B"
