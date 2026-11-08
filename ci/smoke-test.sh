@@ -1289,7 +1289,18 @@ shot 36b-cuts-folder
 grep -q 'text="Isaialai cuts"' "$OUT/cuts-folder.xml" || fail "after saving, the Isaialai cuts folder didn't open"
 grep -q 'text="Smoke Song 1 (cut)"' "$OUT/cuts-folder.xml" || fail "the new cut isn't shown in the Isaialai cuts folder"
 echo "PASS: after saving a cut, Isaialai shows it in the Isaialai cuts folder"
-menu_item cuts-folder "Smoke Song 1 (cut)" "Delete from phone"
+# Play the cut, then delete it from the full player's ⋮ menu while it plays.
+tap cuts-folder "Smoke Song 1 (cut)" exact
+sleep 3
+dump cut-playing
+tap cut-playing "Smoke Song 1 (cut)" last # the mini player
+sleep 3
+dump cut-player
+grep -qi "playing from" "$OUT/cut-player.xml" || fail "the full player didn't open for the cut"
+tap cut-player "More options" exact
+sleep 1
+dump cut-player-menu
+tap cut-player-menu "Delete from phone"
 sleep 3
 dump cut-delete-confirm
 shot 36c-delete-confirm
@@ -1299,7 +1310,12 @@ gone=$(adb shell content query --uri content://media/external/audio/media --proj
 echo "after deleting: $gone"
 grep -q "title=" <<<"$gone" && fail "deleting from the song menu didn't delete the file"
 adb shell content query --uri content://media/external/audio/media --projection title --where "title=\'Smoke\ Song\ 1\'" | grep -q "title=" || fail "the original song was deleted too"
-echo "PASS: a song's ⋮ menu deletes it from the phone (after Android asks)"
+playing_now=$(now_playing)
+echo "playing after deleting: '$playing_now'"
+grep -q "(cut)" <<<"$playing_now" && fail "the deleted song is still the one playing"
+echo "PASS: the song playing can be deleted from the full player's ⋮ menu; it stops playing and leaves the queue"
+dump after-delete
+if grep -qi "playing from" "$OUT/after-delete.xml"; then adb shell input keyevent KEYCODE_BACK; sleep 1; fi
 adb shell input keyevent KEYCODE_BACK # cuts folder -> Library
 sleep 2
 

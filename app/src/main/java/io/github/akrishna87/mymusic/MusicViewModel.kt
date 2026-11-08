@@ -611,6 +611,22 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         messageChannel.trySend("Removed “$title” from the queue")
     }
 
+    /**
+     * A song's file was deleted: take it out of the queue everywhere it is. If it was playing, the
+     * player goes straight on to the next song (or stops if it was the only one).
+     */
+    fun songDeleted(songId: String) {
+        val c = controller ?: return
+        val places = (0 until c.mediaItemCount).filter { c.getMediaItemAt(it).mediaId == songId }
+        if (places.isEmpty()) return
+        if (places.size == c.mediaItemCount) {
+            c.stop()
+            c.clearMediaItems()
+            return
+        }
+        places.sortedDescending().forEach { c.removeMediaItem(it) }
+    }
+
     fun setSpeedAndPitch(newSpeed: Float, newPitch: Float) {
         val c = controller ?: return
         c.playbackParameters = androidx.media3.common.PlaybackParameters(newSpeed.coerceIn(0.5f, 2f), newPitch.coerceIn(0.5f, 2f))

@@ -48,7 +48,9 @@ A one-line-per-feature list, ready to share, is in [FEATURES.md](FEATURES.md).
   Folders and Playlists. The ⋮ menu has **Your cuts** (songs you cut) and
   **Find duplicate songs**. A song's ⋮ menu has **Delete from phone…**
   (Android asks you to confirm; Android 11 and later, songs in the phone's
-  library).
+  library). On the full player it's near the top of ⋮, for the song playing:
+  the music goes straight on to the next song, and the deleted one leaves the
+  queue.
 - **Music directors** (Composers): Tamil and other film songs list the
   singers as the artist, so this groups songs by the Composer tag instead
   (Ilaiyaraaja, A.R. Rahman, Anirudh…). Each music director's page shows

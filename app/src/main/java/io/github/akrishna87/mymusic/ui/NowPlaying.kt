@@ -139,7 +139,7 @@ fun NowPlaying(vm: MusicViewModel) {
                     }
                     Box {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "More options") }
-                        if (song != null) SongMenu(vm, song, expanded = menu, onDismiss = { menu = false })
+                        if (song != null) SongMenu(vm, song, expanded = menu, onDismiss = { menu = false }, deleteFirst = true)
                     }
                 }
 

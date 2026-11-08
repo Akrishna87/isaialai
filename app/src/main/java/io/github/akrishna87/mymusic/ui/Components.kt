@@ -186,9 +186,14 @@ fun SongMenu(
     onDismiss: () -> Unit,
     playlistId: String? = null,
     extra: (@Composable ColumnScope.(dismiss: () -> Unit) -> Unit)? = null,
+    /** On the full player Delete goes near the top, where it's easy to find for the song playing. */
+    deleteFirst: Boolean = false,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         extra?.invoke(this, onDismiss)
+        if (deleteFirst && vm.canDelete(song)) {
+            MenuItem("Delete from phone…", Icons.Rounded.DeleteOutline) { onDismiss(); vm.deleteRequest = song }
+        }
         val liked = vm.isLiked(song)
         MenuItem(if (liked) "Remove from Liked songs" else "Like", if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder) { onDismiss(); vm.toggleLike(song) }
         MenuItem("Play next", Icons.Rounded.SkipNext) { onDismiss(); vm.enqueue(song, next = true) }
@@ -210,7 +215,7 @@ fun SongMenu(
         if (playlistId != null) {
             MenuItem("Remove from this playlist", Icons.Rounded.RemoveCircleOutline) { onDismiss(); vm.playlists.remove(playlistId, song.id) }
         }
-        if (vm.canDelete(song)) {
+        if (!deleteFirst && vm.canDelete(song)) {
             MenuItem("Delete from phone…", Icons.Rounded.DeleteOutline) { onDismiss(); vm.deleteRequest = song }
         }
     }
