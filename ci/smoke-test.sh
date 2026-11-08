@@ -1150,7 +1150,7 @@ echo "--- Reorder songs in a playlist"
 on_screen() { # on_screen <text>: scroll down until <text> is on screen; if it isn't found, start again from the top
   local pass i size w h
   for pass in 1 2; do
-    for i in 1 2 3 4 5 6 7 8 9 10; do
+    for i in $(seq 1 18); do # Settings is long: allow enough steps to reach its bottom
       dump on-screen
       python3 "$HERE/find_text.py" "$OUT/on-screen.xml" "$1" exact > /dev/null 2>&1 && return 0
       scroll_step
