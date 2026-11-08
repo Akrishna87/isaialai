@@ -109,7 +109,8 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Install and run on an Android 14 emulator
-        timeout-minutes: 40
+        # The whole app is tested here; on a slow runner that now takes up to about 40 minutes.
+        timeout-minutes: 70
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 34
