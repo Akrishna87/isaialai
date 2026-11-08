@@ -962,6 +962,11 @@ dump unlocked
 grep -q 'text="Library"' "$OUT/unlocked.xml" || fail "unlocking didn't go back to the app"
 # The mini player's heart shows the same: the like (or unlike) was saved.
 grep -q "content-desc=\"$AFTER\"" "$OUT/unlocked.xml" || fail "the heart tapped on the lock screen wasn't saved"
+# Put the like back as it was: later tests expect the songs liked earlier to still be liked.
+if [ "$BEFORE" = "Remove from Liked songs" ]; then
+  tap unlocked "Like" exact
+  sleep 1
+fi
 adb shell locksettings clear --old 1111 > /dev/null
 echo "PASS: the player shows over the lock screen, and only the player; its heart likes the song"
 
