@@ -962,6 +962,11 @@ dump unlocked
 grep -q 'text="Library"' "$OUT/unlocked.xml" || fail "unlocking didn't go back to the app"
 # The mini player's heart shows the same: the like (or unlike) was saved.
 grep -q "content-desc=\"$AFTER\"" "$OUT/unlocked.xml" || fail "the heart tapped on the lock screen wasn't saved"
+# Put the like back as it was: later tests expect the songs liked earlier to still be liked.
+if [ "$BEFORE" = "Remove from Liked songs" ]; then
+  tap unlocked "Like" exact
+  sleep 1
+fi
 adb shell locksettings clear --old 1111 > /dev/null
 echo "PASS: the player shows over the lock screen, and only the player; its heart likes the song"
 
@@ -1150,7 +1155,7 @@ echo "--- Reorder songs in a playlist"
 on_screen() { # on_screen <text>: scroll down until <text> is on screen; if it isn't found, start again from the top
   local pass i size w h
   for pass in 1 2; do
-    for i in 1 2 3 4 5 6 7 8 9 10; do
+    for i in $(seq 1 18); do # Settings is long: allow enough steps to reach its bottom
       dump on-screen
       python3 "$HERE/find_text.py" "$OUT/on-screen.xml" "$1" exact > /dev/null 2>&1 && return 0
       scroll_step
@@ -1289,7 +1294,18 @@ shot 36b-cuts-folder
 grep -q 'text="Isaialai cuts"' "$OUT/cuts-folder.xml" || fail "after saving, the Isaialai cuts folder didn't open"
 grep -q 'text="Smoke Song 1 (cut)"' "$OUT/cuts-folder.xml" || fail "the new cut isn't shown in the Isaialai cuts folder"
 echo "PASS: after saving a cut, Isaialai shows it in the Isaialai cuts folder"
-menu_item cuts-folder "Smoke Song 1 (cut)" "Delete from phone"
+# Play the cut, then delete it from the full player's ⋮ menu while it plays.
+tap cuts-folder "Smoke Song 1 (cut)" exact
+sleep 3
+dump cut-playing
+tap cut-playing "Smoke Song 1 (cut)" last # the mini player
+sleep 3
+dump cut-player
+grep -qi "playing from" "$OUT/cut-player.xml" || fail "the full player didn't open for the cut"
+tap cut-player "More options" exact
+sleep 1
+dump cut-player-menu
+tap cut-player-menu "Delete from phone"
 sleep 3
 dump cut-delete-confirm
 shot 36c-delete-confirm
@@ -1299,7 +1315,12 @@ gone=$(adb shell content query --uri content://media/external/audio/media --proj
 echo "after deleting: $gone"
 grep -q "title=" <<<"$gone" && fail "deleting from the song menu didn't delete the file"
 adb shell content query --uri content://media/external/audio/media --projection title --where "title=\'Smoke\ Song\ 1\'" | grep -q "title=" || fail "the original song was deleted too"
-echo "PASS: a song's ⋮ menu deletes it from the phone (after Android asks)"
+playing_now=$(now_playing)
+echo "playing after deleting: '$playing_now'"
+grep -q "(cut)" <<<"$playing_now" && fail "the deleted song is still the one playing"
+echo "PASS: the song playing can be deleted from the full player's ⋮ menu; it stops playing and leaves the queue"
+dump after-delete
+if grep -qi "playing from" "$OUT/after-delete.xml"; then adb shell input keyevent KEYCODE_BACK; sleep 1; fi
 adb shell input keyevent KEYCODE_BACK # cuts folder -> Library
 sleep 2
 
@@ -1315,6 +1336,12 @@ grep -q "No cuts yet\|Isaialai cuts" "$OUT/your-cuts.xml" || fail "Library ⋮ �
 echo "PASS: Library ⋮ → Your cuts opens the cuts folder"
 adb shell input keyevent KEYCODE_BACK
 sleep 2
+# Deleting the cut emptied the queue; play a song again, as the tests after this expect.
+chip "Songs"
+sleep 2
+dump replay
+tap replay "Smoke Song 1" exact
+sleep 3
 
 echo "--- Set as ringtone"
 adb shell appops set "$PKG" WRITE_SETTINGS default || true

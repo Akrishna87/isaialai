@@ -23,6 +23,7 @@ fun SongDeleter(vm: MusicViewModel) {
         vm.deleteRequest = null
         if (result.resultCode == Activity.RESULT_OK) {
             vm.say("Deleted “${song?.title ?: "the song"}”")
+            song?.let { vm.songDeleted(it.id) }
             vm.refreshLibrary()
         }
     }
