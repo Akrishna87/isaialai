@@ -432,7 +432,8 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
     fun back(): Boolean = when {
         showEqualizer -> { showEqualizer = false; true }
-        showPlayer -> { showPlayer = false; true }
+        // The full player only shows while something is queued; if the queue emptied, Back goes on to the screen below.
+        showPlayer && currentId != null -> { showPlayer = false; true }
         screens.isNotEmpty() -> { screens.removeAt(screens.lastIndex); true }
         else -> false
     }
@@ -443,6 +444,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         val c = controller ?: return
         val item = c.currentMediaItem
         currentId = item?.mediaId?.takeIf { it.isNotEmpty() }
+        if (currentId == null) showPlayer = false // nothing left to show (the queue emptied)
         currentTitle = item?.mediaMetadata?.title?.toString().orEmpty()
         currentArtist = item?.mediaMetadata?.artist?.toString().orEmpty()
         isPlaying = c.isPlaying
@@ -622,6 +624,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         if (places.size == c.mediaItemCount) {
             c.stop()
             c.clearMediaItems()
+            showPlayer = false
             return
         }
         places.sortedDescending().forEach { c.removeMediaItem(it) }

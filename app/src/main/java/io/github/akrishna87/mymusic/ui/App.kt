@@ -172,7 +172,7 @@ private fun Shell(vm: MusicViewModel) {
         activity?.enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
     }
     LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
-    BackHandler(enabled = vm.showEqualizer || vm.showPlayer || vm.screens.isNotEmpty() || vm.section != Section.HOME) {
+    BackHandler(enabled = vm.showEqualizer || (vm.showPlayer && vm.currentId != null) || vm.screens.isNotEmpty() || vm.section != Section.HOME) {
         if (!vm.back()) vm.selectSection(Section.HOME)
     }
 
